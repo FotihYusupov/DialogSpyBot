@@ -2,5 +2,16 @@
   "dependencies": {
     "grammy": "^1.42.0",
     "mongoose": "^9.6.1"
-  }
+  },
+  "name": "dialogspybot",
+  "version": "1.0.0",
+  "main": "bot.js",
+  "devDependencies": {},
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
 }
