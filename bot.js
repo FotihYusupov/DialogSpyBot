@@ -1,7 +1,7 @@
 const { Bot } = require("grammy");
 const mongoose = require("mongoose");
 
-const BOT_TOKEN = "8023917067:AAGi7w2UyVl3Hq8kZTH62LbmxyeV0r_uShA";
+const BOT_TOKEN = "8023917067:AAHNjlagItmn5A7dqggH5AInLGu7VLu-83M";
 const MONGODB_URI = "mongodb://127.0.0.1:27017/tg_business_db";
 
 if (!BOT_TOKEN || !MONGODB_URI) {
