@@ -1,11 +1,14 @@
-const { Bot } = require("grammy");
+const { Bot, InlineKeyboard, InputFile } = require("grammy");
 const mongoose = require("mongoose");
+const fs = require("fs");
+const path = require("path");
+require("dotenv").config();
 
-const BOT_TOKEN = "8023917067:AAHNjlagItmn5A7dqggH5AInLGu7VLu-83M";
-const MONGODB_URI = "mongodb://127.0.0.1:27017/tg_business_db";
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/tg_business_db";
 
-if (!BOT_TOKEN || !MONGODB_URI) {
-  console.error("❌ BOT_TOKEN yoki MONGODB_URI topilmadi!");
+if (!BOT_TOKEN) {
+  console.error("❌ BOT_TOKEN topilmadi!");
   process.exit(1);
 }
 
@@ -22,12 +25,16 @@ const UserSchema = new mongoose.Schema({
   chat_id: { type: Number, unique: true, required: true },
   username: String,
   first_name: String,
-  business_connection_id: { type: String, index: true }
+  business_connection_id: { type: String, index: true },
+  business_connection_ids: { type: [String], default: [] },
+  notify_edits: { type: Boolean, default: true },
+  notify_deletes: { type: Boolean, default: true }
 });
 
 const User = mongoose.model("User", UserSchema);
 
 const BusinessMessageSchema = new mongoose.Schema({
+  owner_id: { type: Number, index: true },
   business_connection_id: String,
 
   message_id: Number,
@@ -132,6 +139,12 @@ const extractMedia = async (msg) => {
   } else if (msg.animation) {
     fileId = msg.animation.file_id;
     type = "🎞 GIF";
+  } else if (msg.video_note) {
+    fileId = msg.video_note.file_id;
+    type = "📹 Round Video";
+  } else if (msg.audio) {
+    fileId = msg.audio.file_id;
+    type = "🎵 Audio";
   }
 
   if (!fileId) {
@@ -180,8 +193,111 @@ bot.command("start", async (ctx) => {
   );
 
   await ctx.reply(
-    "👋 Bot ishlayapti.\n\nTelegram Business orqali ulang."
+    "👋 Bot ishlayapti.\n\nTelegram Business orqali ulang.\nBuyruqlarni ko'rish uchun /help ni bosing."
   );
+});
+
+bot.command("help", async (ctx) => {
+  const text = 
+    `📖 <b>Yordam</b>\n\n` +
+    `/start - Botni ishga tushirish\n` +
+    `/stats - Statistika\n` +
+    `/settings - Sozlamalar (Xabarnomalarni o'chirish/yoqish)\n` +
+    `/search &lt;so'z&gt; - Xabarlarni izlash\n` +
+    `/export - Ma'lumotlarni yuklab olish\n` +
+    `/help - Shu xabarni ko'rsatish`;
+  
+  await ctx.reply(text, { parse_mode: "HTML" });
+});
+
+bot.command("settings", async (ctx) => {
+  const user = await User.findOne({ chat_id: ctx.from.id });
+  if (!user) return ctx.reply("❌ Avval /start tugmasini bosing.");
+
+  const keyboard = new InlineKeyboard()
+    .text(user.notify_deletes !== false ? "✅ O'chirilgan xabarlar" : "❌ O'chirilgan xabarlar", "toggle_deletes").row()
+    .text(user.notify_edits !== false ? "✅ Tahrirlangan xabarlar" : "❌ Tahrirlangan xabarlar", "toggle_edits");
+
+  await ctx.reply("⚙️ <b>Sozlamalar</b>\nQaysi xabarnomalarni olmoqchisiz?", {
+    parse_mode: "HTML",
+    reply_markup: keyboard
+  });
+});
+
+bot.on("callback_query:data", async (ctx) => {
+  const data = ctx.callbackQuery.data;
+  const user = await User.findOne({ chat_id: ctx.from.id });
+  
+  if (!user) return ctx.answerCallbackQuery("Foydalanuvchi topilmadi.");
+
+  if (data === "toggle_deletes") {
+    user.notify_deletes = user.notify_deletes === false ? true : false;
+    await user.save();
+  } else if (data === "toggle_edits") {
+    user.notify_edits = user.notify_edits === false ? true : false;
+    await user.save();
+  }
+
+  const keyboard = new InlineKeyboard()
+    .text(user.notify_deletes !== false ? "✅ O'chirilgan xabarlar" : "❌ O'chirilgan xabarlar", "toggle_deletes").row()
+    .text(user.notify_edits !== false ? "✅ Tahrirlangan xabarlar" : "❌ Tahrirlangan xabarlar", "toggle_edits");
+
+  await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => {});
+  await ctx.answerCallbackQuery("Sozlamalar saqlandi.");
+});
+
+bot.command("search", async (ctx) => {
+  const user = await User.findOne({ chat_id: ctx.from.id });
+  if (!user || !user.business_connection_id) {
+    return ctx.reply("❌ Business account ulanmagan.");
+  }
+
+  const query = ctx.match;
+  if (!query) {
+    return ctx.reply("❌ Nimani izlamoqchisiz? Masalan: /search salom");
+  }
+
+  const results = await BusinessMessage.find({
+    business_connection_id: user.business_connection_id,
+    $or: [
+      { text: { $regex: query, $options: "i" } },
+      { "edit_history.text": { $regex: query, $options: "i" } }
+    ]
+  }).limit(10);
+
+  if (results.length === 0) {
+    return ctx.reply("🔍 Hech narsa topilmadi.");
+  }
+
+  let text = `🔍 <b>Natijalar (${results.length} ta ko'rsatilmoqda)</b>\n\n`;
+  results.forEach((msg, i) => {
+    let status = msg.is_deleted ? "🗑 O'chirilgan" : (msg.is_edited ? "✏️ Tahrirlangan" : "💬 Oddiy");
+    text += `${i + 1}. [${status}] ${escapeHTML(msg.sender_first_name)}: <i>${escapeHTML((msg.text || "[Media]").substring(0, 50))}...</i>\n`;
+  });
+
+  await ctx.reply(text, { parse_mode: "HTML" });
+});
+
+bot.command("export", async (ctx) => {
+  const user = await User.findOne({ chat_id: ctx.from.id });
+  if (!user || !user.business_connection_id) {
+    return ctx.reply("❌ Business account ulanmagan.");
+  }
+
+  const messages = await BusinessMessage.find({
+    business_connection_id: user.business_connection_id,
+    $or: [{ is_deleted: true }, { is_edited: true }]
+  }).lean();
+
+  if (messages.length === 0) {
+    return ctx.reply("📂 Eksport qilish uchun o'chirilgan yoki tahrirlangan xabarlar yo'q.");
+  }
+
+  const filePath = path.join(__dirname, `export_${ctx.from.id}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(messages, null, 2));
+
+  await ctx.replyWithDocument(new InputFile(filePath), { caption: "📂 O'chirilgan va tahrirlangan xabarlar" });
+  fs.unlinkSync(filePath);
 });
 
 // ==========================================
@@ -198,16 +314,28 @@ bot.command("stats", async (ctx) => {
   }
 
   const total = await BusinessMessage.countDocuments({
-    business_connection_id: user.business_connection_id
+    $or: [
+      { business_connection_id: user.business_connection_id },
+      { business_connection_id: { $in: user.business_connection_ids } },
+      { owner_id: user.chat_id }
+    ]
   });
 
   const deleted = await BusinessMessage.countDocuments({
-    business_connection_id: user.business_connection_id,
+    $or: [
+      { business_connection_id: user.business_connection_id },
+      { business_connection_id: { $in: user.business_connection_ids } },
+      { owner_id: user.chat_id }
+    ],
     is_deleted: true
   });
 
   const edited = await BusinessMessage.countDocuments({
-    business_connection_id: user.business_connection_id,
+    $or: [
+      { business_connection_id: user.business_connection_id },
+      { business_connection_id: { $in: user.business_connection_ids } },
+      { owner_id: user.chat_id }
+    ],
     is_edited: true
   });
 
@@ -235,7 +363,8 @@ bot.on("business_connection", async (ctx) => {
         chat_id: conn.user.id
       },
       {
-        business_connection_id: conn.id
+        business_connection_id: conn.id,
+        $addToSet: { business_connection_ids: conn.id }
       },
       {
         upsert: true
@@ -267,9 +396,38 @@ bot.on("business_message", async (ctx) => {
   try {
     const msg = ctx.businessMessage;
 
+    // Robustly fetch owner
+    let owner_id = null;
+    const user = await User.findOne({
+      $or: [
+        { business_connection_id: msg.business_connection_id },
+        { business_connection_ids: msg.business_connection_id }
+      ]
+    });
+
+    if (user) {
+      owner_id = user.chat_id;
+    } else {
+      try {
+        const conn = await ctx.api.getBusinessConnection(msg.business_connection_id);
+        owner_id = conn.user.id;
+        await User.findOneAndUpdate(
+          { chat_id: owner_id },
+          { 
+            business_connection_id: conn.id,
+            $addToSet: { business_connection_ids: conn.id }
+          },
+          { upsert: true }
+        );
+      } catch (err) {
+        console.error("Could not fetch connection info", err);
+      }
+    }
+
     const mediaInfo = await extractMedia(msg);
 
     await BusinessMessage.create({
+      owner_id: owner_id,
       business_connection_id: msg.business_connection_id,
 
       message_id: msg.message_id,
@@ -303,18 +461,11 @@ bot.on("business_message", async (ctx) => {
 bot.on("deleted_business_messages", async (ctx) => {
   const deletedData = ctx.deletedBusinessMessages;
 
-  const owner = await User.findOne({
-    business_connection_id: deletedData.business_connection_id
-  });
-
-  if (!owner) return;
-
   for (const msgId of deletedData.message_ids) {
     const archived = await BusinessMessage.findOneAndUpdate(
       {
         message_id: msgId,
-        business_connection_id:
-          deletedData.business_connection_id
+        business_connection_id: deletedData.business_connection_id
       },
       {
         is_deleted: true
@@ -325,6 +476,20 @@ bot.on("deleted_business_messages", async (ctx) => {
     );
 
     if (!archived) continue;
+
+    let owner = null;
+    if (archived.owner_id) {
+      owner = await User.findOne({ chat_id: archived.owner_id });
+    } else {
+      owner = await User.findOne({
+        $or: [
+          { business_connection_id: deletedData.business_connection_id },
+          { business_connection_ids: deletedData.business_connection_id }
+        ]
+      });
+    }
+
+    if (!owner || owner.notify_deletes === false) continue;
 
     let fullName = escapeHTML(
       archived.sender_first_name
@@ -423,6 +588,37 @@ bot.on("deleted_business_messages", async (ctx) => {
         );
       }
 
+      // ROUND VIDEO
+      else if (
+        archived.media_type?.includes("Round Video")
+      ) {
+        await bot.api.sendVideoNote(
+          owner.chat_id,
+          archived.media_file_id
+        );
+        await bot.api.sendMessage(
+          owner.chat_id,
+          caption,
+          {
+            parse_mode: "HTML"
+          }
+        );
+      }
+
+      // AUDIO
+      else if (
+        archived.media_type?.includes("Audio")
+      ) {
+        await bot.api.sendAudio(
+          owner.chat_id,
+          archived.media_file_id,
+          {
+            caption,
+            parse_mode: "HTML"
+          }
+        );
+      }
+
       // TEXT ONLY
       else {
         await bot.api.sendMessage(
@@ -450,20 +646,26 @@ bot.on("edited_business_message", async (ctx) => {
   try {
     const editedMsg = ctx.editedBusinessMessage;
 
-    const owner = await User.findOne({
-      business_connection_id:
-        editedMsg.business_connection_id
-    });
-
-    if (!owner) return;
-
     const oldMsg = await BusinessMessage.findOne({
       message_id: editedMsg.message_id,
-      business_connection_id:
-        editedMsg.business_connection_id
+      business_connection_id: editedMsg.business_connection_id
     });
 
     if (!oldMsg) return;
+
+    let owner = null;
+    if (oldMsg.owner_id) {
+      owner = await User.findOne({ chat_id: oldMsg.owner_id });
+    } else {
+      owner = await User.findOne({
+        $or: [
+          { business_connection_id: editedMsg.business_connection_id },
+          { business_connection_ids: editedMsg.business_connection_id }
+        ]
+      });
+    }
+
+    if (!owner || owner.notify_edits === false) return;
 
     const mediaInfo = await extractMedia(editedMsg);
 
