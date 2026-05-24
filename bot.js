@@ -4,6 +4,11 @@ const fs = require("fs");
 const path = require("path");
 require("dotenv").config();
 
+const imagePath = path.resolve(__dirname, "assets", "instructions.png");
+
+console.log("IMAGE PATH:", imagePath);
+console.log("EXISTS:", fs.existsSync(imagePath));
+
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/tg_business_db";
 
@@ -220,7 +225,7 @@ bot.command("start", async (ctx) => {
     
     try {
       await ctx.replyWithPhoto(
-        new InputFile(path.join(__dirname, "assets", "instructions.png")),
+        new InputFile(imagePath),
         {
           caption: caption
         }
