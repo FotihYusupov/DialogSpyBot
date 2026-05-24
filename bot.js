@@ -198,19 +198,25 @@ bot.command("start", async (ctx) => {
 
   if (isFirstTime) {
     // First time - send image with instructions
-    const caption = 
+    const caption =
       `👋 TrackMyChatBot'ga xush kelibsiz\n\n` +
-      `Private chatlarda:\n` +
-      `✏️ edit qilingan\n` +
-      `🗑 o'chirilgan\n` +
-      `📎 media xabarlarni kuzatish uchun Telegram account'ingizni ulang.\n\n` +
-      `📱 Qanday ulash mumkin?\n` +
-      `1️⃣ Telegram Settings oching\n\n` +
-      `Settings → Devices\n\n` +
-      `2️⃣ "Link Desktop Device" ni bosing\n` +
-      `3️⃣ Quyidagi QR kodni scan qiling\n\n` +
-      `Bot sizning account'ingizni xavfsiz tarzda ulaydi.\n\n` +
-      `@TrackMyChatBot`;
+      `🕵️ Private chatlarda o‘chirilgan va tahrirlangan xabarlarni kuzatish uchun account’ingizni ulang.\n\n` +
+
+      `📱 Ulanish yo‘riqnomasi:\n\n` +
+
+      `1️⃣ Telegram profilingizni oching\n` +
+      `➡️ Profil → Tahrirlash\n\n` +
+
+      `2️⃣ Pastga scroll qiling\n` +
+      `➡️ Chat Automation bo‘limini toping\n\n` +
+
+      `3️⃣ @TrackMyChatBot ni kiriting\n` +
+      `➡️ “Ulash” tugmasini bosing\n\n` +
+
+      `✅ Bot muvaffaqiyatli ulandi.\n` +
+      `⚡ Endi edit va deleted message’lar real-time kuzatiladi.\n\n` +
+
+      `🔒 Sizning ma’lumotlaringiz xavfsiz saqlanadi.`;
     
     try {
       await ctx.replyWithPhoto(
