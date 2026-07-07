@@ -131,7 +131,8 @@ export class MessagesService {
           messageCount: { $sum: 1 }
         }
       },
-      { $sort: { messageCount: -1 } },
+      // Sort by messageCount desc, and use owner_id (_id) desc as a tie-breaker for stability
+      { $sort: { messageCount: -1, _id: -1 } },
       { $limit: limit },
       {
         $lookup: {
@@ -170,5 +171,32 @@ export class MessagesService {
       },
       { $sort: { _id: 1 } }
     ]).exec();
+  }
+
+  async getUserChats(ownerId: number): Promise<any[]> {
+    return this.msgModel.aggregate([
+      { $match: { owner_id: ownerId } },
+      { $sort: { date: 1 } },
+      {
+        $group: {
+          _id: '$chat_id',
+          chat_title: { $last: '$chat_title' },
+          chat_type: { $last: '$chat_type' },
+          last_message: { $last: '$text' },
+          last_message_media: { $last: '$media_type' },
+          last_message_date: { $last: '$date' },
+        }
+      },
+      { $sort: { last_message_date: -1 } }
+    ]).exec();
+  }
+
+  async getChatMessages(ownerId: number, chatId: number): Promise<BusinessMessage[]> {
+    return this.msgModel.find({
+      owner_id: ownerId,
+      chat_id: chatId
+    })
+    .sort({ date: 1 })
+    .exec();
   }
 }

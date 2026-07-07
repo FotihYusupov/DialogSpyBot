@@ -39,7 +39,8 @@ export class MessagesController {
 
     const skip = (Number(page) - 1) * Number(limit);
     const [items, total] = await Promise.all([
-      this.msgModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)).exec(),
+      // Sort by createdAt desc, and use _id desc as a unique tie-breaker to prevent pagination instability
+      this.msgModel.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(Number(limit)).exec(),
       this.msgModel.countDocuments(filter).exec()
     ]);
 

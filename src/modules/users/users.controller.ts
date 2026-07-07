@@ -1,15 +1,22 @@
-import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Query, Param, Res, UseGuards, Inject, forwardRef } from '@nestjs/common';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UsersService } from './users.service';
+import { BotService } from '../bot/bot.service';
+import { MessagesService } from '../messages/messages.service';
 
 @Controller('admin/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('superadmin', 'admin')
 export class UsersController {
-  constructor(private usersService: UsersService) {}
+  constructor(
+    private usersService: UsersService,
+    @Inject(forwardRef(() => BotService))
+    private botService: BotService,
+    private messagesService: MessagesService
+  ) {}
 
   @Get()
   async getUsers(
@@ -47,5 +54,51 @@ export class UsersController {
     res.header('Content-Type', 'text/csv');
     res.attachment('users_export.csv');
     return res.send(csvContent);
+  }
+
+  @Get('media/download')
+  async getMedia(@Query('path') filePath: string, @Res() res: Response) {
+    try {
+      const response = await this.botService.downloadFile(filePath);
+      const contentType = response.headers.get('content-type') || 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+      
+      const reader = response.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+      res.end();
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  }
+
+  @Get(':chatId/chats')
+  async getUserChats(@Param('chatId') chatId: string) {
+    return this.messagesService.getUserChats(Number(chatId));
+  }
+
+  @Get(':chatId/chats/:targetChatId')
+  async getChatMessages(
+    @Param('chatId') chatId: string,
+    @Param('targetChatId') targetChatId: string
+  ) {
+    return this.messagesService.getChatMessages(Number(chatId), Number(targetChatId));
+  }
+
+  @Post(':chatId/simulate-test')
+  async simulateTest(@Param('chatId') chatId: string) {
+    const userChatId = Number(chatId);
+    const bot = this.botService.getBotInstance();
+    
+    await bot.api.sendMessage(
+      userChatId,
+      `🔔 <b>Test Xabarnomasi</b>\n\nTrackMyChatBot tizimidagi sozlamalaringiz to'g'ri ishlayotganini tekshirish uchun ushbu xabar yuborildi.\n\n@TrackMyChatBot`,
+      { parse_mode: 'HTML' }
+    );
+    
+    return { success: true, message: 'Test message delivered successfully' };
   }
 }

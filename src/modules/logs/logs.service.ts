@@ -34,7 +34,8 @@ export class LogsService {
     }
 
     const [items, total] = await Promise.all([
-      this.logModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).exec(),
+      // Sort by createdAt desc, and use _id desc as a unique tie-breaker to prevent pagination instability
+      this.logModel.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).exec(),
       this.logModel.countDocuments(filter).exec(),
     ]);
 

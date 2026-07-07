@@ -1,5 +1,5 @@
 {
-  "name": "dialogspybot",
+  "name": "trackmychatbot",
   "version": "1.0.0",
   "description": "Telegram Business Bot - xabarlarni kuzatish uchun",
   "main": "bot.js",

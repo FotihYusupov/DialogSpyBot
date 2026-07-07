@@ -20,6 +20,6 @@ export class CreateBroadcastDto {
 
   @IsNotEmpty()
   @IsString()
-  @IsIn(['all', 'connected', 'active'])
+  @IsIn(['all', 'connected', 'active', 'disconnected'])
   targetFilter: string;
 }

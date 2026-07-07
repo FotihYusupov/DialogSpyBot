@@ -31,6 +31,16 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
     return this.bot;
   }
 
+  async downloadFile(filePath: string) {
+    const token = this.configService.get<string>('BOT_TOKEN');
+    const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch file: ${response.statusText}`);
+    }
+    return response;
+  }
+
   async onApplicationBootstrap() {
     this.logger.log('🤖 Initializing Telegram bot handlers...');
     this.registerHandlers();

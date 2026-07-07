@@ -52,6 +52,8 @@ export class BroadcastService {
     const day = 24 * 60 * 60 * 1000;
     if (broadcast.targetFilter === 'connected') {
       targets = users.filter((u) => !!u.business_connection_id);
+    } else if (broadcast.targetFilter === 'disconnected') {
+      targets = users.filter((u) => !u.business_connection_id);
     } else if (broadcast.targetFilter === 'active') {
       const activeThreshold = new Date(Date.now() - 7 * day);
       targets = users.filter((u) => u.lastActiveAt >= activeThreshold);
