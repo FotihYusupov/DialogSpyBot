@@ -132,7 +132,22 @@ export class MessagesService {
         }
       },
       { $sort: { messageCount: -1 } },
-      { $limit: limit }
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: 'chat_id',
+          as: 'userInfo'
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          messageCount: 1,
+          username: { $arrayElemAt: ['$userInfo.username', 0] }
+        }
+      }
     ]).exec();
   }
 
