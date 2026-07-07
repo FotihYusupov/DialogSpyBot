@@ -372,7 +372,10 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
           business_connection_id: msg.business_connection_id,
           message_id: msg.message_id,
           chat_id: msg.chat.id,
-          chat_title: msg.chat.title || 'Shaxsiy chat',
+          chat_title: msg.chat.title || 
+            (msg.chat.type === 'private' 
+              ? `${(msg.chat as any).first_name || ''} ${(msg.chat as any).last_name || ''}`.trim() || (msg.chat as any).username || 'Shaxsiy chat'
+              : 'Shaxsiy chat'),
           chat_type: msg.chat.type,
           sender_id: msg.from.id,
           sender_first_name: msg.from.first_name || '',

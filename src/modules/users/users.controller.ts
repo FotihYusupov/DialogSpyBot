@@ -59,18 +59,39 @@ export class UsersController {
   @Get('media/download')
   async getMedia(@Query('path') filePath: string, @Res() res: Response) {
     try {
+      if (!filePath) {
+        return res.status(400).send('File path is required');
+      }
       const response = await this.botService.downloadFile(filePath);
       const contentType = response.headers.get('content-type') || 'application/octet-stream';
       res.setHeader('Content-Type', contentType);
       
-      const reader = response.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(Buffer.from(value));
+      const body = response.body;
+      if (!body) {
+        return res.status(404).send('Empty file body');
       }
-      res.end();
+
+      // 1. If it is a standard Node.js Readable stream (has pipe)
+      if (typeof (body as any).pipe === 'function') {
+        (body as any).pipe(res);
+      } 
+      // 2. If it is a Web ReadableStream (has getReader)
+      else if (typeof (body as any).getReader === 'function') {
+        const reader = (body as any).getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(Buffer.from(value));
+        }
+        res.end();
+      } 
+      // 3. Fallback for ArrayBuffer
+      else {
+        const buffer = await response.arrayBuffer();
+        res.send(Buffer.from(buffer));
+      }
     } catch (err: any) {
+      console.error('Media proxy download error:', err);
       res.status(500).send(err.message);
     }
   }

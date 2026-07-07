@@ -174,7 +174,7 @@ export class MessagesService {
   }
 
   async getUserChats(ownerId: number): Promise<any[]> {
-    return this.msgModel.aggregate([
+    const chats = await this.msgModel.aggregate([
       { $match: { owner_id: ownerId } },
       { $sort: { date: 1 } },
       {
@@ -185,10 +185,36 @@ export class MessagesService {
           last_message: { $last: '$text' },
           last_message_media: { $last: '$media_type' },
           last_message_date: { $last: '$date' },
+          sender_names: {
+            $push: {
+              sender_id: '$sender_id',
+              first_name: '$sender_first_name',
+              last_name: '$sender_last_name',
+              username: '$sender_username'
+            }
+          }
         }
       },
       { $sort: { last_message_date: -1 } }
     ]).exec();
+
+    return chats.map(chat => {
+      if (chat.chat_type === 'private' && (chat.chat_title === 'Shaxsiy chat' || !chat.chat_title)) {
+        const otherParty = chat.sender_names?.find((s: any) => s.sender_id === chat._id);
+        if (otherParty) {
+          const fullName = `${otherParty.first_name || ''} ${otherParty.last_name || ''}`.trim();
+          chat.chat_title = fullName || (otherParty.username ? `@${otherParty.username}` : `User ${chat._id}`);
+        } else {
+          const fallbackParty = chat.sender_names?.find((s: any) => s.sender_id !== ownerId);
+          if (fallbackParty) {
+            const fullName = `${fallbackParty.first_name || ''} ${fallbackParty.last_name || ''}`.trim();
+            chat.chat_title = fullName || (fallbackParty.username ? `@${fallbackParty.username}` : `User ${chat._id}`);
+          }
+        }
+      }
+      delete chat.sender_names;
+      return chat;
+    });
   }
 
   async getChatMessages(ownerId: number, chatId: number): Promise<BusinessMessage[]> {
