@@ -169,6 +169,12 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
           first_name: ctx.from.first_name,
         });
 
+        // Log start event
+        await this.logsService.logActivity('bot_start', ctx.from.id, {
+          username: ctx.from.username,
+          first_name: ctx.from.first_name,
+        }).catch((err) => this.logger.error(`Failed to log start activity: ${err.message}`));
+
         if (isFirstTime) {
           const caption =
             `👋 TrackMyChatBot'ga xush kelibsiz\n\n` +
@@ -362,9 +368,23 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
             }
           }
           this.logger.log(`✅ Business connected: ${conn.id}`);
+
+          await this.logsService.logActivity('business_connected', conn.user.id, {
+            username: conn.user.username,
+            first_name: conn.user.first_name,
+          }, { connection_id: conn.id }).catch((err) =>
+            this.logger.error(`Failed to log business connected activity: ${err.message}`)
+          );
         } else {
           await this.usersService.disconnectBusiness(conn.id);
           this.logger.log(`❌ Business disconnected: ${conn.id}`);
+
+          await this.logsService.logActivity('business_disconnected', conn.user.id, {
+            username: conn.user.username,
+            first_name: conn.user.first_name,
+          }, { connection_id: conn.id }).catch((err) =>
+            this.logger.error(`Failed to log business disconnected activity: ${err.message}`)
+          );
         }
       } catch (err: any) {
         this.logger.error(`Business connection error: ${err.message}`);

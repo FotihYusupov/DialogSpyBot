@@ -1,12 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { MessagesService } from '../messages/messages.service';
+import { LogsService } from '../logs/logs.service';
 
 @Injectable()
 export class AnalyticsService {
   constructor(
     private usersService: UsersService,
-    private messagesService: MessagesService
+    private messagesService: MessagesService,
+    private logsService: LogsService
   ) {}
 
   async getDashboardStats() {
@@ -57,6 +59,8 @@ export class AnalyticsService {
       });
     }
 
+    const recentActivities = await this.logsService.getRecentActivities(15);
+
     return {
       totalUsers,
       activeUsers: activeToday,
@@ -72,6 +76,7 @@ export class AnalyticsService {
       topActiveUsers,
       growthChart,
       hourlyActivity,
+      recentActivities,
     };
   }
 

@@ -18,4 +18,14 @@ export class LogsController {
   ) {
     return this.logsService.getPaginated({ page, limit, type });
   }
+
+  @Get('activities')
+  async getActivityLogs(
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('action') action?: string,
+    @Query('search') search?: string
+  ) {
+    return this.logsService.getActivityPaginated({ page, limit, action, search });
+  }
 }
