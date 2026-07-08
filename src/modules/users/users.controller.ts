@@ -57,12 +57,16 @@ export class UsersController {
   }
 
   @Get('media/download')
-  async getMedia(@Query('path') filePath: string, @Res() res: Response) {
+  async getMedia(
+    @Query('path') filePath: string,
+    @Query('fileId') fileId: string,
+    @Res() res: Response
+  ) {
     try {
-      if (!filePath) {
-        return res.status(400).send('File path is required');
+      if (!filePath && !fileId) {
+        return res.status(400).send('File path or file ID is required');
       }
-      const response = await this.botService.downloadFile(filePath);
+      const response = await this.botService.downloadFile(filePath, fileId);
       const contentType = response.headers.get('content-type') || 'application/octet-stream';
       res.setHeader('Content-Type', contentType);
       

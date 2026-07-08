@@ -225,4 +225,11 @@ export class MessagesService {
     .sort({ date: 1 })
     .exec();
   }
+
+  async updateFilePathByFileId(fileId: string, filePath: string): Promise<void> {
+    await this.msgModel.updateMany(
+      { media_file_id: fileId },
+      { media_file_path: filePath }
+    ).exec();
+  }
 }

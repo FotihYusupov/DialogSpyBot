@@ -31,14 +31,49 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
     return this.bot;
   }
 
-  async downloadFile(filePath: string) {
+  async downloadFile(filePath?: string, fileId?: string) {
     const token = this.configService.get<string>('BOT_TOKEN');
-    const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch file: ${response.statusText}`);
+
+    // 1. Try downloading with the existing filePath if we have it
+    if (filePath) {
+      const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
+      try {
+        const response = await fetch(url);
+        if (response.ok) {
+          return response;
+        }
+        this.logger.warn(`Failed to fetch file using path ${filePath}: ${response.statusText} (${response.status})`);
+      } catch (err: any) {
+        this.logger.warn(`Fetch error using path ${filePath}: ${err.message}`);
+      }
     }
-    return response;
+
+    // 2. If filePath failed (e.g. 404) or was not provided, and we have fileId, get a new path from Telegram
+    if (fileId) {
+      this.logger.log(`Attempting to refresh file path for fileId: ${fileId}`);
+      const file = await this.bot.api.getFile(fileId);
+      if (!file.file_path) {
+        throw new Error('Telegram API did not return a file path for the file ID.');
+      }
+
+      // Update the path in the database for future requests
+      try {
+        await this.messagesService.updateFilePathByFileId(fileId, file.file_path);
+        this.logger.log(`Successfully updated DB with fresh file path for fileId: ${fileId}`);
+      } catch (dbErr: any) {
+        this.logger.error(`Failed to update fresh file path in DB: ${dbErr.message}`);
+      }
+
+      // Try downloading with the fresh path
+      const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch file even with fresh path: ${response.statusText}`);
+      }
+      return response;
+    }
+
+    throw new Error('Could not download file: both path and fileId are invalid or expired.');
   }
 
   async onApplicationBootstrap() {
