@@ -20,8 +20,8 @@ export class MessagesController {
   async getMessages(
     @Query('type') type?: 'all' | 'deleted' | 'edited',
     @Query('search') search?: string,
-    @Query('page') page = 1,
-    @Query('limit') limit = 20
+    @Query('page') page: any = 1,
+    @Query('limit') limit: any = 20
   ) {
     const filter: any = {};
     if (type === 'deleted') {
@@ -37,14 +37,21 @@ export class MessagesController {
       ];
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
+    // Sanitize pagination inputs to prevent negative, NaN, or extremely large values
+    const parsedPage = parseInt(page, 10);
+    const parsedLimit = parseInt(limit, 10);
+
+    const pageNum = isNaN(parsedPage) || parsedPage < 1 ? 1 : parsedPage;
+    const limitNum = isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(100, parsedLimit);
+
+    const skip = (pageNum - 1) * limitNum;
     const [items, total] = await Promise.all([
       // Sort by createdAt desc, and use _id desc as a unique tie-breaker to prevent pagination instability
-      this.msgModel.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(Number(limit)).exec(),
+      this.msgModel.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limitNum).exec(),
       this.msgModel.countDocuments(filter).exec()
     ]);
 
-    return { items, total, page, limit };
+    return { items, total, page: pageNum, limit: limitNum };
   }
 
   @Get('connections')

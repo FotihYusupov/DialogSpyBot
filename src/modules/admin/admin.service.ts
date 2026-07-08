@@ -1,20 +1,15 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Admin } from './schemas/admin.schema';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
-export class AdminService implements OnModuleInit {
-  constructor(@InjectModel(Admin.name) private adminModel: Model<Admin>) {}
+export class AdminService {
+  constructor(
+    @InjectModel(Admin.name) private adminModel: Model<Admin>,
+  ) {}
 
-  async onModuleInit() {
-    const count = await this.adminModel.countDocuments().exec();
-    if (count === 0) {
-      await this.createAdmin('admin', 'admin123', 'superadmin');
-      console.log('✅ Default administrator seeded: username "admin", password "admin123"');
-    }
-  }
 
   async findByUsername(username: string): Promise<Admin | null> {
     return this.adminModel.findOne({ username }).exec();
