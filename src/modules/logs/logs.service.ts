@@ -51,8 +51,8 @@ export class LogsService {
   }
 
   async getPaginated(query: { page?: number; limit?: number; type?: string }) {
-    const page = Number(query.page) || 1;
-    const limit = Number(query.limit) || 10;
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(query.limit) || 10));
     const skip = (page - 1) * limit;
 
     const filter: any = {};
@@ -75,8 +75,8 @@ export class LogsService {
     action?: string;
     search?: string;
   }) {
-    const page = Number(query.page) || 1;
-    const limit = Number(query.limit) || 10;
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(query.limit) || 10));
     const skip = (page - 1) * limit;
 
     const filter: any = {};

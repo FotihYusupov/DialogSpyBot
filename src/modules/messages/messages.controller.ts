@@ -20,6 +20,7 @@ export class MessagesController {
   async getMessages(
     @Query('type') type?: 'all' | 'deleted' | 'edited',
     @Query('search') search?: string,
+    @Query('ownerId') ownerId?: string,
     @Query('page') page: any = 1,
     @Query('limit') limit: any = 20
   ) {
@@ -28,6 +29,9 @@ export class MessagesController {
       filter.is_deleted = true;
     } else if (type === 'edited') {
       filter.is_edited = true;
+    }
+    if (ownerId && ownerId !== 'all') {
+      filter.owner_id = Number(ownerId);
     }
     if (search) {
       filter.$or = [
@@ -47,7 +51,25 @@ export class MessagesController {
     const skip = (pageNum - 1) * limitNum;
     const [items, total] = await Promise.all([
       // Sort by createdAt desc, and use _id desc as a unique tie-breaker to prevent pagination instability
-      this.msgModel.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limitNum).exec(),
+      this.msgModel.aggregate([
+        { $match: filter },
+        { $sort: { createdAt: -1, _id: -1 } },
+        { $skip: skip },
+        { $limit: limitNum },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'owner_id',
+            foreignField: 'chat_id',
+            as: 'owner'
+          }
+        },
+        {
+          $addFields: {
+            owner: { $arrayElemAt: ['$owner', 0] }
+          }
+        }
+      ]).exec(),
       this.msgModel.countDocuments(filter).exec()
     ]);
 

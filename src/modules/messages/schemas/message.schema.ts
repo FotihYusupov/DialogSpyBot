@@ -73,3 +73,5 @@ export const BusinessMessageSchema = SchemaFactory.createForClass(BusinessMessag
 BusinessMessageSchema.index({ business_connection_id: 1, message_id: 1 });
 BusinessMessageSchema.index({ date: 1 });
 BusinessMessageSchema.index({ text: 'text' }); // Text index for full text search if needed
+BusinessMessageSchema.index({ owner_id: 1, chat_id: 1, date: -1 });
+BusinessMessageSchema.index({ owner_id: 1, createdAt: -1 });
