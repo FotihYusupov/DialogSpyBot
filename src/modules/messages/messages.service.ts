@@ -226,6 +226,23 @@ export class MessagesService {
     .exec();
   }
 
+  async getChatMessagesPaginated(
+    ownerId: number,
+    chatId: number,
+    page: number,
+    limit: number
+  ): Promise<BusinessMessage[]> {
+    const skip = (page - 1) * limit;
+    return this.msgModel.find({
+      owner_id: ownerId,
+      chat_id: chatId
+    })
+    .sort({ date: -1 })
+    .skip(skip)
+    .limit(limit)
+    .exec();
+  }
+
   async updateFilePathByFileId(fileId: string, filePath: string): Promise<void> {
     await this.msgModel.updateMany(
       { media_file_id: fileId },

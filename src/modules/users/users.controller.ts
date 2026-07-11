@@ -108,9 +108,18 @@ export class UsersController {
   @Get(':chatId/chats/:targetChatId')
   async getChatMessages(
     @Param('chatId') chatId: string,
-    @Param('targetChatId') targetChatId: string
+    @Param('targetChatId') targetChatId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
   ) {
-    return this.messagesService.getChatMessages(Number(chatId), Number(targetChatId));
+    const pageNum = Math.max(1, parseInt(page || '1', 10) || 1);
+    const limitNum = Math.max(1, Math.min(200, parseInt(limit || '100', 10) || 100));
+    return this.messagesService.getChatMessagesPaginated(
+      Number(chatId),
+      Number(targetChatId),
+      pageNum,
+      limitNum
+    );
   }
 
   @Post(':chatId/simulate-test')
