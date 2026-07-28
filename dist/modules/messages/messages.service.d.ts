@@ -1,0 +1,26 @@
+import { Model } from 'mongoose';
+import { BusinessMessage } from './schemas/message.schema';
+export declare class MessagesService {
+    private msgModel;
+    constructor(msgModel: Model<BusinessMessage>);
+    create(data: Partial<BusinessMessage>): Promise<BusinessMessage>;
+    findOne(businessConnectionId: string, messageId: number): Promise<BusinessMessage | null>;
+    markDeleted(businessConnectionId: string, messageId: number): Promise<BusinessMessage | null>;
+    search(businessConnectionId: string, query: string, limit?: number): Promise<BusinessMessage[]>;
+    getDeletedAndEditedForExport(businessConnectionId: string): Promise<BusinessMessage[]>;
+    countTotal(ownerId?: number, connectionIds?: string[], primaryConnectionId?: string): Promise<number>;
+    countDeleted(ownerId?: number, connectionIds?: string[], primaryConnectionId?: string): Promise<number>;
+    countEdited(ownerId?: number, connectionIds?: string[], primaryConnectionId?: string): Promise<number>;
+    private buildUserMessagesFilter;
+    countAllMessages(): Promise<number>;
+    countAllDeleted(): Promise<number>;
+    countAllEdited(): Promise<number>;
+    countMessagesToday(): Promise<number>;
+    getAverageActivityPerUser(): Promise<number>;
+    getTopActiveUsers(limit?: number): Promise<any[]>;
+    getPeakHours(days?: number): Promise<any[]>;
+    getUserChats(ownerId: number): Promise<any[]>;
+    getChatMessages(ownerId: number, chatId: number): Promise<BusinessMessage[]>;
+    getChatMessagesPaginated(ownerId: number, chatId: number, page: number, limit: number): Promise<BusinessMessage[]>;
+    updateFilePathByFileId(fileId: string, filePath: string): Promise<void>;
+}
