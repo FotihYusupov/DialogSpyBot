@@ -12,6 +12,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { BroadcastModule } from './modules/broadcast/broadcast.module';
+import { PremiumModule } from './modules/premium/premium.module';
+import { SmartMemoryModule } from './modules/memory/smart-memory.module';
 
 @Module({
   imports: [
@@ -23,6 +25,8 @@ import { BroadcastModule } from './modules/broadcast/broadcast.module';
       limit: 100,
     }]),
     DatabaseModule,
+    PremiumModule,
+    SmartMemoryModule,
     UsersModule,
     MessagesModule,
     LogsModule,

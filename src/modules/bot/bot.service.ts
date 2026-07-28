@@ -1,9 +1,11 @@
 import { Injectable, OnApplicationBootstrap, OnApplicationShutdown, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Bot, InlineKeyboard, InputFile } from 'grammy';
+import { Bot, InlineKeyboard, Keyboard, InputFile } from 'grammy';
 import { UsersService } from '../users/users.service';
 import { MessagesService } from '../messages/messages.service';
 import { LogsService } from '../logs/logs.service';
+import { PremiumService } from '../premium/premium.service';
+import { SmartMemoryService } from '../memory/smart-memory.service';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -17,7 +19,9 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
     private configService: ConfigService,
     private usersService: UsersService,
     private messagesService: MessagesService,
-    private logsService: LogsService
+    private logsService: LogsService,
+    private premiumService: PremiumService,
+    private smartMemoryService: SmartMemoryService
   ) {
     const token = this.configService.get<string>('BOT_TOKEN');
     if (!token) {
@@ -151,6 +155,40 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
     }
   }
 
+  private buildMainMenuKeyboard(user?: any) {
+    const isPremium = this.premiumService.isPremiumActive(user);
+
+    // Free users must NEVER see premium buttons (⭐ Saved Items, ⏰ Reminders)
+    if (!isPremium) {
+      return { remove_keyboard: true as const };
+    }
+
+    return new Keyboard()
+      .text('⭐ Saved Items')
+      .text('⏰ Reminders')
+      .resized();
+  }
+
+  private async executePremiumFeature(ctx: any, featureName: string, action: (user: any) => Promise<void>) {
+    try {
+      if (!ctx.from?.id) return;
+      const user = await this.usersService.findByChatId(ctx.from.id);
+      
+      if (!user || !this.premiumService.isPremiumActive(user)) {
+        return ctx.reply(
+          `⭐ <b>Premium Obuna Talab Etiladi</b>\n\n` +
+          `Ushbu xususiyat (<b>${this.escapeHTML(featureName)}</b>) faqat Premium foydalanuvchilar uchun mo'ljallangan.\n\n` +
+          `Premium obunani faollashtirish uchun administrator bilan bog'laning.\n\n@TrackMyChatBot`,
+          { parse_mode: 'HTML' }
+        );
+      }
+
+      await action(user);
+    } catch (err: any) {
+      this.logger.error(`Error executing premium feature [${featureName}]: ${err.message}`);
+    }
+  }
+
   private registerHandlers() {
     const bot = this.bot;
 
@@ -175,6 +213,8 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
           first_name: ctx.from.first_name,
         }).catch((err) => this.logger.error(`Failed to log start activity: ${err.message}`));
 
+        const replyMarkup = this.buildMainMenuKeyboard(updatedUser);
+
         if (isFirstTime) {
           const caption =
             `👋 TrackMyChatBot'ga xush kelibsiz\n\n` +
@@ -192,19 +232,20 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
 
           try {
             if (fs.existsSync(this.imagePath)) {
-              await ctx.replyWithPhoto(new InputFile(this.imagePath), { caption });
+              await ctx.replyWithPhoto(new InputFile(this.imagePath), { caption, reply_markup: replyMarkup });
             } else {
-              await ctx.reply(caption);
+              await ctx.reply(caption, { reply_markup: replyMarkup });
             }
           } catch (err: any) {
             this.logger.error(`❌ Rasm yuborishda xato: ${err.message}`);
-            await ctx.reply(caption);
+            await ctx.reply(caption, { reply_markup: replyMarkup });
           }
         } else if (updatedUser.business_connection_id) {
-          await ctx.reply('✅ Telegram accountingiz allaqachon ulangan.\n\n@TrackMyChatBot');
+          await ctx.reply('✅ Telegram accountingiz allaqachon ulangan.\n\n@TrackMyChatBot', { reply_markup: replyMarkup });
         } else {
           await ctx.reply(
-            `👋 Bot ishlayapti.\n\nTelegram Business orqali ulang.\nBuyruqlarni ko'rish uchun /help ni bosing.\n\n@TrackMyChatBot`
+            `👋 Bot ishlayapti.\n\nTelegram Business orqali ulang.\nBuyruqlarni ko'rish uchun /help ni bosing.\n\n@TrackMyChatBot`,
+            { reply_markup: replyMarkup }
           );
         }
       } catch (err: any) {
@@ -215,19 +256,73 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
 
     bot.command('help', async (ctx) => {
       try {
-        const text =
+        const user = await this.usersService.findByChatId(ctx.from.id);
+        const isPrem = this.premiumService.isPremiumActive(user);
+
+        let text =
           `📖 <b>Yordam</b>\n\n` +
           `/start - Botni ishga tushirish\n` +
           `/stats - Statistika\n` +
           `/settings - Sozlamalar (Xabarnomalarni o'chirish/yoqish)\n` +
           `/search &lt;so'z&gt; - Xabarlarni izlash\n` +
-          `/export - Ma'lumotlarni yuklab olish\n` +
-          `/help - Shu xabarni ko'rsatish\n\n` +
-          `@TrackMyChatBot`;
-        await ctx.reply(text, { parse_mode: 'HTML' });
+          `/export - Ma'lumotlarni yuklab olish\n`;
+
+        if (isPrem) {
+          text +=
+            `⭐ /saved - Saqlangan xabarlar (Premium)\n` +
+            `⏰ /reminders - Eslatmalar (Premium)\n`;
+        }
+
+        text += `/help - Shu xabarni ko'rsatish\n\n@TrackMyChatBot`;
+        await ctx.reply(text, { parse_mode: 'HTML', reply_markup: this.buildMainMenuKeyboard(user) });
       } catch (err: any) {
         this.logger.error(`Help command error: ${err.message}`);
       }
+    });
+
+    // Premium Feature Handlers (Saved Items)
+    bot.hears('⭐ Saved Items', async (ctx) => {
+      await this.executePremiumFeature(ctx, 'Saved Items', async () => {
+        await ctx.reply('⭐ <b>Saved Items</b>\n\nSiz saqlagan xabarlar ro\'yxati hozircha bo\'sh.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+      });
+    });
+
+    bot.command('saved', async (ctx) => {
+      await this.executePremiumFeature(ctx, 'Saved Items', async () => {
+        await ctx.reply('⭐ <b>Saved Items</b>\n\nSiz saqlagan xabarlar ro\'yxati hozircha bo\'sh.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+      });
+    });
+
+    // Premium Feature Handlers (Reminders)
+    bot.hears('⏰ Reminders', async (ctx) => {
+      await this.executePremiumFeature(ctx, 'Reminders', async () => {
+        await ctx.reply('⏰ <b>Reminders</b>\n\nFaol eslatmalar mavjud emas.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+      });
+    });
+
+    bot.command('reminders', async (ctx) => {
+      await this.executePremiumFeature(ctx, 'Reminders', async () => {
+        await ctx.reply('⏰ <b>Reminders</b>\n\nFaol eslatmalar mavjud emas.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+      });
+    });
+
+    // Modular future premium feature handler shortcuts
+    bot.command('aisearch', async (ctx) => {
+      await this.executePremiumFeature(ctx, 'AI Search', async () => {
+        await ctx.reply('🤖 <b>AI Search</b>\n\nSun\'iy intellekt orqali qidiruv tizimi.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+      });
+    });
+
+    bot.command('insights', async (ctx) => {
+      await this.executePremiumFeature(ctx, 'Smart Insights', async () => {
+        await ctx.reply('💡 <b>Smart Insights</b>\n\nChat tahlillari va tushunchalari.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+      });
+    });
+
+    bot.command('collections', async (ctx) => {
+      await this.executePremiumFeature(ctx, 'Collections', async () => {
+        await ctx.reply(`📁 <b>Collections</b>\n\nXabarlar to'plamlari.\n\n@TrackMyChatBot`, { parse_mode: 'HTML' });
+      });
     });
 
     bot.command('settings', async (ctx) => {
@@ -443,6 +538,21 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
         });
 
         this.logger.log('✅ Message saved');
+
+        // Trigger Smart Memory (Knowledge Graph) extraction for active premium connections
+        if (owner_id) {
+          this.smartMemoryService.processIncomingMessage({
+            ownerId: owner_id,
+            messageId: msg.message_id,
+            chatId: msg.chat.id,
+            senderId: msg.from.id,
+            senderFirstName: msg.from.first_name || '',
+            senderLastName: msg.from.last_name || '',
+            senderUsername: msg.from.username || '',
+            text: msg.text || msg.caption || '',
+            date: new Date(msg.date * 1000),
+          }).catch((err) => this.logger.error(`Smart Memory processing error: ${err.message}`));
+        }
       } catch (err: any) {
         this.logger.error(`Save message error: ${err.message}`);
         this.logsService.logTelegramError('save_message_failed', err.stack, { messageId: ctx.businessMessage?.message_id });

@@ -24,11 +24,27 @@ export class User extends Document {
   @Prop({ type: Boolean, default: true })
   notify_deletes: boolean;
 
+  @Prop({ type: Boolean, default: false })
+  isPremium: boolean;
+
+  @Prop({ type: Date, default: null })
+  premiumExpiresAt?: Date | null;
+
   @Prop({ type: Date, default: Date.now })
   lastActiveAt: Date;
 
   createdAt: Date;
   updatedAt: Date;
+}
+
+export function isPremiumActive(user?: Partial<User> | null): boolean {
+  if (!user || user.isPremium === false || user.isPremium === undefined || user.isPremium === null) {
+    return false;
+  }
+  if (user.premiumExpiresAt === null || user.premiumExpiresAt === undefined) {
+    return true;
+  }
+  return new Date(user.premiumExpiresAt).getTime() > Date.now();
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, Param, Res, UseGuards, Inject, forwardRef } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Query, Param, Res, UseGuards, Inject, forwardRef } from '@nestjs/common';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -6,6 +6,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UsersService } from './users.service';
 import { BotService } from '../bot/bot.service';
 import { MessagesService } from '../messages/messages.service';
+import { PremiumService } from '../premium/premium.service';
 
 @Controller('admin/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -15,7 +16,8 @@ export class UsersController {
     private usersService: UsersService,
     @Inject(forwardRef(() => BotService))
     private botService: BotService,
-    private messagesService: MessagesService
+    private messagesService: MessagesService,
+    private premiumService: PremiumService
   ) {}
 
   @Get()
@@ -36,19 +38,53 @@ export class UsersController {
     });
   }
 
+  @Post(':chatId/premium/enable')
+  async enablePremium(
+    @Param('chatId') chatId: string,
+    @Body('expiresAt') expiresAt?: string | null
+  ) {
+    const user = await this.premiumService.enablePremium(chatId, expiresAt);
+    const details = this.premiumService.getPremiumStatusDetails(user);
+    return { success: true, user, details };
+  }
+
+  @Post(':chatId/premium/disable')
+  async disablePremium(@Param('chatId') chatId: string) {
+    const user = await this.premiumService.disablePremium(chatId);
+    const details = this.premiumService.getPremiumStatusDetails(user);
+    return { success: true, user, details };
+  }
+
+  @Patch(':chatId/premium')
+  async togglePremium(
+    @Param('chatId') chatId: string,
+    @Body() body: { isPremium: boolean; expiresAt?: string | null }
+  ) {
+    let user;
+    if (body.isPremium) {
+      user = await this.premiumService.enablePremium(chatId, body.expiresAt);
+    } else {
+      user = await this.premiumService.disablePremium(chatId);
+    }
+    const details = this.premiumService.getPremiumStatusDetails(user);
+    return { success: true, user, details };
+  }
+
   @Get('export')
   async exportCsv(@Query('connected') connected: string, @Res() res: Response) {
     const isConnected = connected === 'true' ? true : (connected === 'false' ? false : undefined);
     const users = await this.usersService.getAllForExport({ connected: isConnected });
 
-    let csvContent = 'Chat ID,Username,First Name,Connected Connection ID,Notify Edits,Notify Deletes,Created At,Last Active\n';
+    let csvContent = 'Chat ID,Username,First Name,Connected Connection ID,Is Premium,Premium Expires At,Is Premium Active,Notify Edits,Notify Deletes,Created At,Last Active\n';
     for (const u of users) {
       const uname = u.username ? u.username.replace(/"/g, '""') : '';
       const fname = u.first_name ? u.first_name.replace(/"/g, '""') : '';
       const connId = u.business_connection_id || '';
       const createdAtStr = u.createdAt ? u.createdAt.toISOString() : '';
       const lastActiveStr = u.lastActiveAt ? u.lastActiveAt.toISOString() : '';
-      csvContent += `${u.chat_id},"${uname}","${fname}",${connId},${u.notify_edits},${u.notify_deletes},"${createdAtStr}","${lastActiveStr}"\n`;
+      const isPremActive = this.premiumService.isPremiumActive(u);
+      const premExpiresStr = u.premiumExpiresAt ? new Date(u.premiumExpiresAt).toISOString() : 'Lifetime';
+      csvContent += `${u.chat_id},"${uname}","${fname}",${connId},${u.isPremium || false},"${premExpiresStr}",${isPremActive},${u.notify_edits},${u.notify_deletes},"${createdAtStr}","${lastActiveStr}"\n`;
     }
 
     res.header('Content-Type', 'text/csv');
