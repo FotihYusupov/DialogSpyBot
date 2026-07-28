@@ -292,11 +292,11 @@ export class SmartMemoryService {
       filter.country = { $regex: this.escapeRegex(options.country), $options: 'i' };
     }
 
-    if (options.updatedToday) {
+    if (options.updatedToday === true) {
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
       filter.lastUpdated = { $gte: startOfDay };
-    } else if (options.updatedThisWeek) {
+    } else if (options.updatedThisWeek === true) {
       const startOfWeek = new Date();
       startOfWeek.setDate(startOfWeek.getDate() - 7);
       filter.lastUpdated = { $gte: startOfWeek };
