@@ -37,7 +37,7 @@ export class SettingsService implements OnModuleInit {
     const setting = await this.settingModel.findOneAndUpdate(
       { key },
       { value },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     ).exec();
     this.cache.set(key, value);
     return setting;

@@ -27,7 +27,7 @@ export class MessagesService {
         message_id: messageId,
       },
       { is_deleted: true },
-      { new: true }
+      { returnDocument: 'after' }
     ).exec();
   }
 

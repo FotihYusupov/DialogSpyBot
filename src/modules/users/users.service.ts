@@ -24,7 +24,7 @@ export class UsersService {
     return this.userModel.findOneAndUpdate(
       { chat_id: chatId },
       { ...update, lastActiveAt: new Date() },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     ).exec();
   }
 
@@ -32,7 +32,7 @@ export class UsersService {
     return this.userModel.findOneAndUpdate(
       { business_connection_id: connectionId },
       { $unset: { business_connection_id: '' } },
-      { new: true }
+      { returnDocument: 'after' }
     ).exec();
   }
 

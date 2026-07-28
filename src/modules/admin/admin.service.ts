@@ -28,7 +28,7 @@ export class AdminService {
   async changePassword(username: string, newPasswordPlain: string): Promise<Admin | null> {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(newPasswordPlain, salt);
-    return this.adminModel.findOneAndUpdate({ username }, { passwordHash }, { new: true }).exec();
+    return this.adminModel.findOneAndUpdate({ username }, { passwordHash }, { returnDocument: 'after' }).exec();
   }
 
   async removeAdmin(username: string): Promise<any> {

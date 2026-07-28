@@ -129,13 +129,24 @@ export class AIExtractorService {
       'aws', 'gcp', 'git', 'redis', 'graphql', 'flutter', 'swift', 'kotlin'
     ];
     for (const skill of skillKeywords) {
-      const reg = new RegExp(`\\b${skill}\\b`, 'i');
-      if (reg.test(text)) {
-        facts.push({ 
-          type: 'skill', 
-          value: skill === 'nestjs' ? 'NestJS' : skill === 'nextjs' ? 'Next.js' : skill === 'nodejs' ? 'Node.js' : skill.charAt(0).toUpperCase() + skill.slice(1), 
-          confidence: 0.85 
-        });
+      try {
+        const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pattern = /\w$/.test(skill) 
+          ? `\\b${escaped}\\b` 
+          : `(?:^|\\s|\\b)${escaped}(?:$|\\s|\\b|[.,!?])`;
+        const reg = new RegExp(pattern, 'i');
+        if (reg.test(text)) {
+          facts.push({ 
+            type: 'skill', 
+            value: skill === 'nestjs' ? 'NestJS' : skill === 'nextjs' ? 'Next.js' : skill === 'nodejs' ? 'Node.js' : skill === 'c++' ? 'C++' : skill === 'c#' ? 'C#' : skill.charAt(0).toUpperCase() + skill.slice(1), 
+            confidence: 0.85 
+          });
+        }
+      } catch (e) {
+        // Fallback simple search if regex fails
+        if (lowerText.includes(skill)) {
+          facts.push({ type: 'skill', value: skill, confidence: 0.80 });
+        }
       }
     }
 
