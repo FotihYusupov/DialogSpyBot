@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
 import { DatabaseModule } from './database/database.module';
 import { UsersModule } from './modules/users/users.module';
@@ -14,12 +15,15 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { BroadcastModule } from './modules/broadcast/broadcast.module';
 import { PremiumModule } from './modules/premium/premium.module';
 import { SmartMemoryModule } from './modules/memory/smart-memory.module';
+import { SavedMessagesModule } from './modules/saved/saved-messages.module';
+import { RemindersModule } from './modules/reminders/reminders.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{
       ttl: 60000,
       limit: 100,
@@ -36,6 +40,8 @@ import { SmartMemoryModule } from './modules/memory/smart-memory.module';
     AdminModule,
     AnalyticsModule,
     BroadcastModule,
+    SavedMessagesModule,
+    RemindersModule,
   ],
   providers: [
     {
@@ -45,4 +51,3 @@ import { SmartMemoryModule } from './modules/memory/smart-memory.module';
   ],
 })
 export class AppModule {}
-

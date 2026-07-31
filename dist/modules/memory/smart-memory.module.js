@@ -18,6 +18,7 @@ const ai_extractor_service_1 = require("./services/ai-extractor.service");
 const smart_memory_service_1 = require("./smart-memory.service");
 const memory_controller_1 = require("./memory.controller");
 const users_module_1 = require("../users/users.module");
+const premium_module_1 = require("../premium/premium.module");
 let SmartMemoryModule = class SmartMemoryModule {
 };
 exports.SmartMemoryModule = SmartMemoryModule;
@@ -32,6 +33,7 @@ exports.SmartMemoryModule = SmartMemoryModule = __decorate([
                 { name: interest_score_schema_1.InterestScore.name, schema: interest_score_schema_1.InterestScoreSchema },
             ]),
             users_module_1.UsersModule,
+            premium_module_1.PremiumModule,
         ],
         controllers: [memory_controller_1.MemoryController],
         providers: [rule_engine_service_1.RuleEngineService, ai_extractor_service_1.AIExtractorService, smart_memory_service_1.SmartMemoryService],

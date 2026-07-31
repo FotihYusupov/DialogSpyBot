@@ -10,6 +10,7 @@ exports.AppModule = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const throttler_1 = require("@nestjs/throttler");
+const schedule_1 = require("@nestjs/schedule");
 const core_1 = require("@nestjs/core");
 const database_module_1 = require("./database/database.module");
 const users_module_1 = require("./modules/users/users.module");
@@ -23,6 +24,8 @@ const analytics_module_1 = require("./modules/analytics/analytics.module");
 const broadcast_module_1 = require("./modules/broadcast/broadcast.module");
 const premium_module_1 = require("./modules/premium/premium.module");
 const smart_memory_module_1 = require("./modules/memory/smart-memory.module");
+const saved_messages_module_1 = require("./modules/saved/saved-messages.module");
+const reminders_module_1 = require("./modules/reminders/reminders.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -32,6 +35,7 @@ exports.AppModule = AppModule = __decorate([
             config_1.ConfigModule.forRoot({
                 isGlobal: true,
             }),
+            schedule_1.ScheduleModule.forRoot(),
             throttler_1.ThrottlerModule.forRoot([{
                     ttl: 60000,
                     limit: 100,
@@ -48,6 +52,8 @@ exports.AppModule = AppModule = __decorate([
             admin_module_1.AdminModule,
             analytics_module_1.AnalyticsModule,
             broadcast_module_1.BroadcastModule,
+            saved_messages_module_1.SavedMessagesModule,
+            reminders_module_1.RemindersModule,
         ],
         providers: [
             {

@@ -46,22 +46,27 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.BotService = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
+const schedule_1 = require("@nestjs/schedule");
 const grammy_1 = require("grammy");
 const users_service_1 = require("../users/users.service");
 const messages_service_1 = require("../messages/messages.service");
 const logs_service_1 = require("../logs/logs.service");
 const premium_service_1 = require("../premium/premium.service");
 const smart_memory_service_1 = require("../memory/smart-memory.service");
+const saved_messages_service_1 = require("../saved/saved-messages.service");
+const reminders_service_1 = require("../reminders/reminders.service");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 let BotService = BotService_1 = class BotService {
-    constructor(configService, usersService, messagesService, logsService, premiumService, smartMemoryService) {
+    constructor(configService, usersService, messagesService, logsService, premiumService, smartMemoryService, savedMessagesService, remindersService) {
         this.configService = configService;
         this.usersService = usersService;
         this.messagesService = messagesService;
         this.logsService = logsService;
         this.premiumService = premiumService;
         this.smartMemoryService = smartMemoryService;
+        this.savedMessagesService = savedMessagesService;
+        this.remindersService = remindersService;
         this.logger = new common_1.Logger(BotService_1.name);
         this.imagePath = path.resolve(process.cwd(), 'assets', 'instructions.png');
         const token = this.configService.get('BOT_TOKEN');
@@ -124,6 +129,27 @@ let BotService = BotService_1 = class BotService {
         this.logger.log('⛔ Stopping Telegram bot...');
         await this.bot.stop();
         this.logger.log('✅ Bot stopped');
+    }
+    async processReminders() {
+        try {
+            const dueReminders = await this.remindersService.findDueReminders();
+            if (dueReminders.length === 0)
+                return;
+            for (const reminder of dueReminders) {
+                try {
+                    await this.bot.api.sendMessage(reminder.owner_id, `⏰ <b>Eslatma!</b>\n\n${this.escapeHTML(reminder.text)}\n\n@TrackMyChatBot`, { parse_mode: 'HTML' });
+                    await this.remindersService.markSent(String(reminder._id));
+                    this.logger.log(`✅ Reminder sent to user ${reminder.owner_id}`);
+                }
+                catch (err) {
+                    this.logger.error(`❌ Failed to send reminder ${reminder._id}: ${err.message}`);
+                    await this.remindersService.markSent(String(reminder._id));
+                }
+            }
+        }
+        catch (err) {
+            this.logger.error(`Reminder cron error: ${err.message}`);
+        }
     }
     escapeHTML(str) {
         if (!str)
@@ -192,8 +218,8 @@ let BotService = BotService_1 = class BotService {
             return { remove_keyboard: true };
         }
         return new grammy_1.Keyboard()
-            .text('⭐ Saved Items')
-            .text('⏰ Reminders')
+            .text('⭐ Saqlangan Xabarlar')
+            .text('⏰ Eslatmalar')
             .resized();
     }
     async executePremiumFeature(ctx, featureName, action) {
@@ -210,6 +236,25 @@ let BotService = BotService_1 = class BotService {
         }
         catch (err) {
             this.logger.error(`Error executing premium feature [${featureName}]: ${err.message}`);
+        }
+    }
+    formatRemindAt(date) {
+        const now = new Date();
+        const diffMs = date.getTime() - now.getTime();
+        const diffMin = Math.round(diffMs / 60000);
+        if (diffMin < 60) {
+            return `${diffMin} daqiqadan keyin`;
+        }
+        else if (diffMin < 1440) {
+            const hours = Math.floor(diffMin / 60);
+            const mins = diffMin % 60;
+            return mins > 0 ? `${hours} soat ${mins} daqiqadan keyin` : `${hours} soatdan keyin`;
+        }
+        else {
+            return date.toLocaleString('uz-UZ', {
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            });
         }
     }
     registerHandlers() {
@@ -232,18 +277,18 @@ let BotService = BotService_1 = class BotService {
                 }).catch((err) => this.logger.error(`Failed to log start activity: ${err.message}`));
                 const replyMarkup = this.buildMainMenuKeyboard(updatedUser);
                 if (isFirstTime) {
-                    const caption = `👋 TrackMyChatBot'ga xush kelibsiz\n\n` +
-                        `🕵️ Private chatlarda o‘chirilgan va tahrirlangan xabarlarni kuzatish uchun account’ingizni ulang.\n\n` +
-                        `📱 Ulanish yo‘riqnomasi:\n\n` +
+                    const caption = `👋 TrackMyChatBot'ga xush kelibsiz!\n\n` +
+                        `🕵️ Private chatlarda o'chirilgan va tahrirlangan xabarlarni kuzatish uchun accountingizni ulang.\n\n` +
+                        `📱 Ulanish yo'riqnomasi:\n\n` +
                         `1️⃣ Telegram profilingizni oching\n` +
                         `➡️ Profil → Tahrirlash\n\n` +
                         `2️⃣ Pastga scroll qiling\n` +
-                        `➡️ Chat Automation bo‘limini toping\n\n` +
+                        `➡️ Chat Automation bo'limini toping\n\n` +
                         `3️⃣ @TrackMyChatBot ni kiriting\n` +
-                        `➡️ “Ulash” tugmasini bosing\n\n` +
+                        `➡️ "Ulash" tugmasini bosing\n\n` +
                         `✅ Bot muvaffaqiyatli ulandi.\n` +
-                        `⚡ Endi edit va deleted message’lar real-time kuzatiladi.\n\n` +
-                        `🔒 Sizning ma’lumotlaringiz xavfsiz saqlanadi.`;
+                        `⚡ Endi edit va deleted xabarlar real-time kuzatiladi.\n\n` +
+                        `🔒 Ma'lumotlaringiz xavfsiz saqlanadi.`;
                     try {
                         if (fs.existsSync(this.imagePath)) {
                             await ctx.replyWithPhoto(new grammy_1.InputFile(this.imagePath), { caption, reply_markup: replyMarkup });
@@ -276,13 +321,14 @@ let BotService = BotService_1 = class BotService {
                 let text = `📖 <b>Yordam</b>\n\n` +
                     `/start - Botni ishga tushirish\n` +
                     `/stats - Statistika\n` +
-                    `/settings - Sozlamalar (Xabarnomalarni o'chirish/yoqish)\n` +
+                    `/settings - Sozlamalar (bildirishnomalarni o'chirish/yoqish)\n` +
                     `/search &lt;so'z&gt; - Xabarlarni izlash\n` +
                     `/export - Ma'lumotlarni yuklab olish\n`;
                 if (isPrem) {
                     text +=
                         `⭐ /saved - Saqlangan xabarlar (Premium)\n` +
-                            `⏰ /reminders - Eslatmalar (Premium)\n`;
+                            `⏰ /eslatma &lt;vaqt&gt; &lt;matn&gt; - Eslatma qo'shish (Premium)\n` +
+                            `⏰ /reminders - Eslatmalar ro'yxati (Premium)\n`;
                 }
                 text += `/help - Shu xabarni ko'rsatish\n\n@TrackMyChatBot`;
                 await ctx.reply(text, { parse_mode: 'HTML', reply_markup: this.buildMainMenuKeyboard(user) });
@@ -291,39 +337,54 @@ let BotService = BotService_1 = class BotService {
                 this.logger.error(`Help command error: ${err.message}`);
             }
         });
-        bot.hears('⭐ Saved Items', async (ctx) => {
-            await this.executePremiumFeature(ctx, 'Saved Items', async () => {
-                await ctx.reply('⭐ <b>Saved Items</b>\n\nSiz saqlagan xabarlar ro\'yxati hozircha bo\'sh.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+        bot.hears(['⭐ Saqlangan Xabarlar', '⭐ Saved Items'], async (ctx) => {
+            await this.executePremiumFeature(ctx, 'Saqlangan Xabarlar', async () => {
+                await this.showSavedMessages(ctx, 1);
             });
         });
         bot.command('saved', async (ctx) => {
-            await this.executePremiumFeature(ctx, 'Saved Items', async () => {
-                await ctx.reply('⭐ <b>Saved Items</b>\n\nSiz saqlagan xabarlar ro\'yxati hozircha bo\'sh.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+            await this.executePremiumFeature(ctx, 'Saqlangan Xabarlar', async () => {
+                await this.showSavedMessages(ctx, 1);
             });
         });
-        bot.hears('⏰ Reminders', async (ctx) => {
-            await this.executePremiumFeature(ctx, 'Reminders', async () => {
-                await ctx.reply('⏰ <b>Reminders</b>\n\nFaol eslatmalar mavjud emas.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+        bot.hears(['⏰ Eslatmalar', '⏰ Reminders'], async (ctx) => {
+            await this.executePremiumFeature(ctx, 'Eslatmalar', async () => {
+                await this.showReminders(ctx);
             });
         });
         bot.command('reminders', async (ctx) => {
-            await this.executePremiumFeature(ctx, 'Reminders', async () => {
-                await ctx.reply('⏰ <b>Reminders</b>\n\nFaol eslatmalar mavjud emas.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+            await this.executePremiumFeature(ctx, 'Eslatmalar', async () => {
+                await this.showReminders(ctx);
             });
         });
-        bot.command('aisearch', async (ctx) => {
-            await this.executePremiumFeature(ctx, 'AI Search', async () => {
-                await ctx.reply('🤖 <b>AI Search</b>\n\nSun\'iy intellekt orqali qidiruv tizimi.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
-            });
-        });
-        bot.command('insights', async (ctx) => {
-            await this.executePremiumFeature(ctx, 'Smart Insights', async () => {
-                await ctx.reply('💡 <b>Smart Insights</b>\n\nChat tahlillari va tushunchalari.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
-            });
-        });
-        bot.command('collections', async (ctx) => {
-            await this.executePremiumFeature(ctx, 'Collections', async () => {
-                await ctx.reply(`📁 <b>Collections</b>\n\nXabarlar to'plamlari.\n\n@TrackMyChatBot`, { parse_mode: 'HTML' });
+        bot.command(['eslatma', 'remind'], async (ctx) => {
+            await this.executePremiumFeature(ctx, 'Eslatmalar', async () => {
+                const input = ctx.match?.trim();
+                if (!input) {
+                    await ctx.reply(`⏰ <b>Eslatma qo'shish</b>\n\n` +
+                        `📌 Format:\n` +
+                        `<code>/eslatma 30m Shifokorga boring</code>\n` +
+                        `<code>/eslatma 2s Uchrashuv bor</code>\n` +
+                        `<code>/eslatma 1kun Loyihani topshir</code>\n` +
+                        `<code>/eslatma 15:30 Kechki ovqat</code>\n\n` +
+                        `⏱ Vaqt formatlari: <code>m</code>=daqiqa, <code>s</code>=soat, <code>kun</code>=kun`, { parse_mode: 'HTML' });
+                    return;
+                }
+                const parsed = this.remindersService.parseReminderText(input);
+                if (parsed.error || !parsed.remindAt) {
+                    await ctx.reply(`❌ ${parsed.error || "Vaqt formatini tekshiring."}`, { parse_mode: 'HTML' });
+                    return;
+                }
+                const activeCount = await this.remindersService.countActiveByOwner(ctx.from.id);
+                if (activeCount >= 20) {
+                    await ctx.reply(`❌ Maksimal 20 ta faol eslatma bo'lishi mumkin.\n\nEski eslatmalarni /reminders orqali o'chiring.`);
+                    return;
+                }
+                await this.remindersService.create(ctx.from.id, parsed.text, parsed.remindAt);
+                await ctx.reply(`✅ <b>Eslatma saqlandi!</b>\n\n` +
+                    `📝 Matn: <i>${this.escapeHTML(parsed.text)}</i>\n` +
+                    `⏰ Vaqt: <b>${this.formatRemindAt(parsed.remindAt)}</b>\n\n` +
+                    `@TrackMyChatBot`, { parse_mode: 'HTML' });
             });
         });
         bot.command('settings', async (ctx) => {
@@ -334,7 +395,7 @@ let BotService = BotService_1 = class BotService {
                 const keyboard = new grammy_1.InlineKeyboard()
                     .text(user.notify_deletes !== false ? "✅ O'chirilgan xabarlar" : "❌ O'chirilgan xabarlar", 'toggle_deletes').row()
                     .text(user.notify_edits !== false ? "✅ Tahrirlangan xabarlar" : "❌ Tahrirlangan xabarlar", 'toggle_edits');
-                await ctx.reply('⚙️ <b>Sozlamalar</b>\nQaysi xabarnomalarni olmoqchisiz?\n\n@TrackMyChatBot', {
+                await ctx.reply('⚙️ <b>Sozlamalar</b>\nQaysi bildirishnomalarni olmoqchisiz?\n\n@TrackMyChatBot', {
                     parse_mode: 'HTML',
                     reply_markup: keyboard,
                 });
@@ -351,18 +412,95 @@ let BotService = BotService_1 = class BotService {
                     return ctx.answerCallbackQuery('Foydalanuvchi topilmadi.');
                 if (data === 'toggle_deletes') {
                     await this.usersService.toggleNotification(user.chat_id, 'deletes');
-                }
-                else if (data === 'toggle_edits') {
-                    await this.usersService.toggleNotification(user.chat_id, 'edits');
-                }
-                const updated = await this.usersService.findByChatId(user.chat_id);
-                if (!updated)
+                    const updated = await this.usersService.findByChatId(user.chat_id);
+                    if (!updated)
+                        return;
+                    const keyboard = new grammy_1.InlineKeyboard()
+                        .text(updated.notify_deletes !== false ? "✅ O'chirilgan xabarlar" : "❌ O'chirilgan xabarlar", 'toggle_deletes').row()
+                        .text(updated.notify_edits !== false ? "✅ Tahrirlangan xabarlar" : "❌ Tahrirlangan xabarlar", 'toggle_edits');
+                    await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => { });
+                    await ctx.answerCallbackQuery('Sozlamalar saqlandi.');
                     return;
-                const keyboard = new grammy_1.InlineKeyboard()
-                    .text(updated.notify_deletes !== false ? "✅ O'chirilgan xabarlar" : "❌ O'chirilgan xabarlar", 'toggle_deletes').row()
-                    .text(updated.notify_edits !== false ? "✅ Tahrirlangan xabarlar" : "❌ Tahrirlangan xabarlar", 'toggle_edits');
-                await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => { });
-                await ctx.answerCallbackQuery('Sozlamalar saqlandi.');
+                }
+                if (data === 'toggle_edits') {
+                    await this.usersService.toggleNotification(user.chat_id, 'edits');
+                    const updated = await this.usersService.findByChatId(user.chat_id);
+                    if (!updated)
+                        return;
+                    const keyboard = new grammy_1.InlineKeyboard()
+                        .text(updated.notify_deletes !== false ? "✅ O'chirilgan xabarlar" : "❌ O'chirilgan xabarlar", 'toggle_deletes').row()
+                        .text(updated.notify_edits !== false ? "✅ Tahrirlangan xabarlar" : "❌ Tahrirlangan xabarlar", 'toggle_edits');
+                    await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => { });
+                    await ctx.answerCallbackQuery('Sozlamalar saqlandi.');
+                    return;
+                }
+                if (data.startsWith('del_saved_')) {
+                    const savedId = data.replace('del_saved_', '');
+                    const deleted = await this.savedMessagesService.deleteById(savedId, ctx.from.id);
+                    if (deleted) {
+                        await ctx.editMessageText('🗑 Xabar saqlangan ro\'yxatdan o\'chirildi.\n\n@TrackMyChatBot').catch(() => { });
+                        await ctx.answerCallbackQuery('O\'chirildi.');
+                    }
+                    else {
+                        await ctx.answerCallbackQuery('Topilmadi yoki sizning xabaringiz emas.');
+                    }
+                    return;
+                }
+                if (data.startsWith('saved_page_')) {
+                    const page = parseInt(data.replace('saved_page_', ''), 10);
+                    await ctx.answerCallbackQuery();
+                    await this.showSavedMessages(ctx, page, true);
+                    return;
+                }
+                if (data.startsWith('cancel_reminder_')) {
+                    const reminderId = data.replace('cancel_reminder_', '');
+                    const cancelled = await this.remindersService.cancel(reminderId, ctx.from.id);
+                    if (cancelled) {
+                        await ctx.editMessageText('✅ Eslatma bekor qilindi.\n\n@TrackMyChatBot').catch(() => { });
+                        await ctx.answerCallbackQuery('Bekor qilindi.');
+                    }
+                    else {
+                        await ctx.answerCallbackQuery('Topilmadi yoki allaqachon yuborilgan.');
+                    }
+                    return;
+                }
+                if (data.startsWith('save_msg_')) {
+                    const msgMongoId = data.replace('save_msg_', '');
+                    if (!this.premiumService.isPremiumActive(user)) {
+                        await ctx.answerCallbackQuery('⭐ Bu funksiya Premium uchun.');
+                        return;
+                    }
+                    const archived = await this.messagesService.findByMongoId(msgMongoId);
+                    if (!archived) {
+                        await ctx.answerCallbackQuery('Xabar topilmadi.');
+                        return;
+                    }
+                    if (archived.message_id) {
+                        const alreadySaved = await this.savedMessagesService.isAlreadySaved(ctx.from.id, archived.message_id);
+                        if (alreadySaved) {
+                            await ctx.answerCallbackQuery('Bu xabar allaqachon saqlangan!');
+                            return;
+                        }
+                    }
+                    await this.savedMessagesService.save({
+                        owner_id: ctx.from.id,
+                        business_connection_id: archived.business_connection_id,
+                        original_message_id: archived.message_id,
+                        chat_id: archived.chat_id,
+                        chat_title: archived.chat_title,
+                        sender_id: archived.sender_id,
+                        sender_first_name: archived.sender_first_name,
+                        sender_last_name: archived.sender_last_name,
+                        sender_username: archived.sender_username,
+                        text: archived.text,
+                        media_type: archived.media_type,
+                        media_file_id: archived.media_file_id,
+                    });
+                    await ctx.answerCallbackQuery('⭐ Saqlandi!');
+                    await ctx.editMessageReplyMarkup({ reply_markup: new grammy_1.InlineKeyboard().text('✅ Saqlangan', 'noop') }).catch(() => { });
+                    return;
+                }
+                await ctx.answerCallbackQuery();
             }
             catch (err) {
                 this.logger.error(`Callback query error: ${err.message}`);
@@ -423,15 +561,30 @@ let BotService = BotService_1 = class BotService {
                 const deleted = await this.messagesService.countDeleted(user.chat_id, user.business_connection_ids, user.business_connection_id);
                 const edited = await this.messagesService.countEdited(user.chat_id, user.business_connection_ids, user.business_connection_id);
                 const text = `📊 <b>Statistika</b>\n\n` +
-                    `📥 Jami: <b>${total}</b>\n` +
-                    `🗑 Deleted: <b>${deleted}</b>\n` +
-                    `✏️ Edited: <b>${edited}</b>\n\n` +
+                    `📥 Jami xabarlar: <b>${total}</b>\n` +
+                    `🗑 O'chirilgan: <b>${deleted}</b>\n` +
+                    `✏️ Tahrirlangan: <b>${edited}</b>\n\n` +
                     `@TrackMyChatBot`;
                 await ctx.reply(text, { parse_mode: 'HTML' });
             }
             catch (err) {
                 this.logger.error(`Stats command error: ${err.message}`);
             }
+        });
+        bot.command('aisearch', async (ctx) => {
+            await this.executePremiumFeature(ctx, 'AI Search', async () => {
+                await ctx.reply('🤖 <b>AI Search</b>\n\nSun\'iy intellekt orqali qidiruv tizimi.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+            });
+        });
+        bot.command('insights', async (ctx) => {
+            await this.executePremiumFeature(ctx, 'Smart Insights', async () => {
+                await ctx.reply('💡 <b>Smart Insights</b>\n\nChat tahlillari va tushunchalari.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+            });
+        });
+        bot.command('collections', async (ctx) => {
+            await this.executePremiumFeature(ctx, 'Collections', async () => {
+                await ctx.reply(`📁 <b>Collections</b>\n\nXabarlar to'plamlari.\n\n@TrackMyChatBot`, { parse_mode: 'HTML' });
+            });
         });
         bot.on('business_connection', async (ctx) => {
             try {
@@ -513,6 +666,7 @@ let BotService = BotService_1 = class BotService {
                     media_type: mediaInfo.type || undefined,
                     media_file_id: mediaInfo.file_id || undefined,
                     media_file_path: mediaInfo.file_path || undefined,
+                    date: new Date(msg.date * 1000),
                 });
                 this.logger.log('✅ Message saved');
                 if (owner_id) {
@@ -563,32 +717,54 @@ let BotService = BotService_1 = class BotService {
                         `💬 <b>Matn:</b>\n` +
                         `<i>${this.escapeHTML(archived.text || '[Media]')}</i>\n\n` +
                         `@TrackMyChatBot`;
+                    const isPremium = this.premiumService.isPremiumActive(owner);
+                    const keyboard = isPremium && archived.text
+                        ? new grammy_1.InlineKeyboard().text('⭐ Saqlash', `save_msg_${archived._id}`)
+                        : undefined;
                     try {
                         if (archived.media_type?.includes('Rasm')) {
-                            await bot.api.sendPhoto(owner.chat_id, archived.media_file_id, { caption, parse_mode: 'HTML' });
+                            await bot.api.sendPhoto(owner.chat_id, archived.media_file_id, {
+                                caption, parse_mode: 'HTML',
+                                ...(keyboard ? { reply_markup: keyboard } : {})
+                            });
                         }
                         else if (archived.media_type?.includes('Video')) {
-                            await bot.api.sendVideo(owner.chat_id, archived.media_file_id, { caption, parse_mode: 'HTML' });
+                            await bot.api.sendVideo(owner.chat_id, archived.media_file_id, {
+                                caption, parse_mode: 'HTML',
+                                ...(keyboard ? { reply_markup: keyboard } : {})
+                            });
                         }
                         else if (archived.media_type?.includes('Voice')) {
-                            await bot.api.sendVoice(owner.chat_id, archived.media_file_id, { caption, parse_mode: 'HTML' });
+                            await bot.api.sendVoice(owner.chat_id, archived.media_file_id, {
+                                caption, parse_mode: 'HTML',
+                            });
                         }
                         else if (archived.media_type?.includes('Document')) {
-                            await bot.api.sendDocument(owner.chat_id, archived.media_file_id, { caption, parse_mode: 'HTML' });
+                            await bot.api.sendDocument(owner.chat_id, archived.media_file_id, {
+                                caption, parse_mode: 'HTML',
+                            });
                         }
                         else if (archived.media_type?.includes('Sticker')) {
                             await bot.api.sendSticker(owner.chat_id, archived.media_file_id);
-                            await bot.api.sendMessage(owner.chat_id, caption, { parse_mode: 'HTML' });
+                            await bot.api.sendMessage(owner.chat_id, caption, {
+                                parse_mode: 'HTML',
+                                ...(keyboard ? { reply_markup: keyboard } : {})
+                            });
                         }
                         else if (archived.media_type?.includes('Round Video')) {
                             await bot.api.sendVideoNote(owner.chat_id, archived.media_file_id);
                             await bot.api.sendMessage(owner.chat_id, caption, { parse_mode: 'HTML' });
                         }
                         else if (archived.media_type?.includes('Audio')) {
-                            await bot.api.sendAudio(owner.chat_id, archived.media_file_id, { caption, parse_mode: 'HTML' });
+                            await bot.api.sendAudio(owner.chat_id, archived.media_file_id, {
+                                caption, parse_mode: 'HTML',
+                            });
                         }
                         else {
-                            await bot.api.sendMessage(owner.chat_id, caption, { parse_mode: 'HTML' });
+                            await bot.api.sendMessage(owner.chat_id, caption, {
+                                parse_mode: 'HTML',
+                                ...(keyboard ? { reply_markup: keyboard } : {})
+                            });
                         }
                     }
                     catch (err) {
@@ -631,7 +807,14 @@ let BotService = BotService_1 = class BotService {
                     `✅ <b>Yangi:</b>\n` +
                     `<i>${this.escapeHTML(newText)}</i>\n\n` +
                     `@TrackMyChatBot`;
-                await bot.api.sendMessage(owner.chat_id, report, { parse_mode: 'HTML' });
+                const isPremium = this.premiumService.isPremiumActive(owner);
+                const keyboard = isPremium && oldMsg.text
+                    ? new grammy_1.InlineKeyboard().text('⭐ Eski versiyani saqlash', `save_msg_${oldMsg._id}`)
+                    : undefined;
+                await bot.api.sendMessage(owner.chat_id, report, {
+                    parse_mode: 'HTML',
+                    ...(keyboard ? { reply_markup: keyboard } : {})
+                });
                 oldMsg.edit_history.push({ text: oldMsg.text || '', date: new Date() });
                 oldMsg.text = newText;
                 oldMsg.is_edited = true;
@@ -647,8 +830,83 @@ let BotService = BotService_1 = class BotService {
             }
         });
     }
+    async showSavedMessages(ctx, page, editMessage = false) {
+        const { items, total, limit } = await this.savedMessagesService.findByOwner(ctx.from.id, page, 5);
+        if (total === 0) {
+            const text = `⭐ <b>Saqlangan Xabarlar</b>\n\n` +
+                `Hozircha saqlangan xabar yo'q.\n\n` +
+                `💡 <i>Xabarlar o'chirilganda yoki tahrirlanganda bildirishnomada "⭐ Saqlash" tugmasi paydo bo'ladi.</i>\n\n` +
+                `@TrackMyChatBot`;
+            if (editMessage) {
+                await ctx.editMessageText(text, { parse_mode: 'HTML' }).catch(() => ctx.reply(text, { parse_mode: 'HTML' }));
+            }
+            else {
+                await ctx.reply(text, { parse_mode: 'HTML' });
+            }
+            return;
+        }
+        const totalPages = Math.ceil(total / limit);
+        let text = `⭐ <b>Saqlangan Xabarlar</b> (${total} ta)\n`;
+        text += `📄 Sahifa ${page}/${totalPages}\n\n`;
+        items.forEach((saved, i) => {
+            const num = (page - 1) * limit + i + 1;
+            const senderName = this.escapeHTML(saved.sender_first_name || 'Noma\'lum');
+            const chatTitle = this.escapeHTML(saved.chat_title || 'Noma\'lum chat');
+            const preview = this.escapeHTML((saved.text || '[Media]').substring(0, 80));
+            const savedDate = new Date(saved.saved_at).toLocaleDateString('uz-UZ');
+            text += `${num}. 👤 ${senderName} | 🏠 ${chatTitle}\n`;
+            text += `   📝 <i>${preview}</i>\n`;
+            text += `   📅 ${savedDate}\n\n`;
+        });
+        const keyboard = new grammy_1.InlineKeyboard();
+        items.forEach((saved) => {
+            keyboard.text(`🗑 #${items.indexOf(saved) + (page - 1) * limit + 1} ni o'chirish`, `del_saved_${saved._id}`).row();
+        });
+        if (totalPages > 1) {
+            if (page > 1)
+                keyboard.text('◀️ Oldingi', `saved_page_${page - 1}`);
+            if (page < totalPages)
+                keyboard.text('Keyingi ▶️', `saved_page_${page + 1}`);
+        }
+        text += `@TrackMyChatBot`;
+        if (editMessage) {
+            await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard }));
+        }
+        else {
+            await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+        }
+    }
+    async showReminders(ctx) {
+        const reminders = await this.remindersService.findActiveByOwner(ctx.from.id);
+        if (reminders.length === 0) {
+            await ctx.reply(`⏰ <b>Eslatmalar</b>\n\n` +
+                `Faol eslatmalar mavjud emas.\n\n` +
+                `💡 Yangi eslatma qo'shish uchun:\n` +
+                `<code>/eslatma 30m Shifokorga boring</code>\n` +
+                `<code>/eslatma 2s Uchrashuv bor</code>\n` +
+                `<code>/eslatma 15:30 Kechki ovqat</code>\n\n` +
+                `@TrackMyChatBot`, { parse_mode: 'HTML' });
+            return;
+        }
+        let text = `⏰ <b>Faol Eslatmalar</b> (${reminders.length} ta)\n\n`;
+        const keyboard = new grammy_1.InlineKeyboard();
+        reminders.forEach((reminder, i) => {
+            const timeStr = this.formatRemindAt(new Date(reminder.remind_at));
+            text += `${i + 1}. 📝 <i>${this.escapeHTML(reminder.text)}</i>\n`;
+            text += `   ⏰ ${timeStr}\n\n`;
+            keyboard.text(`❌ #${i + 1} bekor qilish`, `cancel_reminder_${reminder._id}`).row();
+        });
+        text += `@TrackMyChatBot`;
+        await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+    }
 };
 exports.BotService = BotService;
+__decorate([
+    (0, schedule_1.Cron)(schedule_1.CronExpression.EVERY_MINUTE),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], BotService.prototype, "processReminders", null);
 exports.BotService = BotService = BotService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [config_1.ConfigService,
@@ -656,6 +914,8 @@ exports.BotService = BotService = BotService_1 = __decorate([
         messages_service_1.MessagesService,
         logs_service_1.LogsService,
         premium_service_1.PremiumService,
-        smart_memory_service_1.SmartMemoryService])
+        smart_memory_service_1.SmartMemoryService,
+        saved_messages_service_1.SavedMessagesService,
+        reminders_service_1.RemindersService])
 ], BotService);
 //# sourceMappingURL=bot.service.js.map

@@ -249,4 +249,12 @@ export class MessagesService {
       { media_file_path: filePath }
     ).exec();
   }
+
+  async findByMongoId(mongoId: string): Promise<BusinessMessage | null> {
+    try {
+      return this.msgModel.findById(mongoId).exec();
+    } catch {
+      return null;
+    }
+  }
 }

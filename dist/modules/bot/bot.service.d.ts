@@ -6,6 +6,8 @@ import { MessagesService } from '../messages/messages.service';
 import { LogsService } from '../logs/logs.service';
 import { PremiumService } from '../premium/premium.service';
 import { SmartMemoryService } from '../memory/smart-memory.service';
+import { SavedMessagesService } from '../saved/saved-messages.service';
+import { RemindersService } from '../reminders/reminders.service';
 export declare class BotService implements OnApplicationBootstrap, OnApplicationShutdown {
     private configService;
     private usersService;
@@ -13,17 +15,23 @@ export declare class BotService implements OnApplicationBootstrap, OnApplication
     private logsService;
     private premiumService;
     private smartMemoryService;
+    private savedMessagesService;
+    private remindersService;
     private bot;
     private readonly logger;
     private imagePath;
-    constructor(configService: ConfigService, usersService: UsersService, messagesService: MessagesService, logsService: LogsService, premiumService: PremiumService, smartMemoryService: SmartMemoryService);
+    constructor(configService: ConfigService, usersService: UsersService, messagesService: MessagesService, logsService: LogsService, premiumService: PremiumService, smartMemoryService: SmartMemoryService, savedMessagesService: SavedMessagesService, remindersService: RemindersService);
     getBotInstance(): Bot;
     downloadFile(filePath?: string, fileId?: string): Promise<Response>;
     onApplicationBootstrap(): Promise<void>;
     onApplicationShutdown(): Promise<void>;
+    processReminders(): Promise<void>;
     private escapeHTML;
     private extractMedia;
     private buildMainMenuKeyboard;
     private executePremiumFeature;
+    private formatRemindAt;
     private registerHandlers;
+    private showSavedMessages;
+    private showReminders;
 }

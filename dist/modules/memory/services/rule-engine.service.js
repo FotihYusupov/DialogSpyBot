@@ -22,7 +22,7 @@ let RuleEngineService = RuleEngineService_1 = class RuleEngineService {
         this.INSTAGRAM_REGEX = /(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9_.]+)/gi;
         this.TWITTER_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:twitter|x)\.com\/([a-zA-Z0-9_]+)/gi;
         this.MAPS_REGEX = /(?:https?:\/\/)?(?:maps\.google\.com|goo\.gl\/maps|maps\.app\.goo\.gl)\/[^\s]+/gi;
-        this.FLIGHT_REGEX = /\b([A-Z]{2}\d{3,4})\b/g;
+        this.FLIGHT_REGEX = /\b(HY|AF|BA|LH|TK|EK|QR|SU|S7|U6|UZ|AK|AA|UA|DL|WS|AC|FR|VY|W6|RYR|EZY)\d{1,4}\b/g;
         this.TRACKING_REGEX = /\b(1Z[0-9A-Z]{16}|[0-9]{12,22})\b/g;
         this.CARD_REGEX = /\b(?:\d[ -]*?){13,16}\b/g;
         this.INVOICE_REGEX = /\b(?:INV|INVOICE|SCH|BILL)[-:\s]?#?\d{3,10}\b/gi;

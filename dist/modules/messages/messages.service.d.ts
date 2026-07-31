@@ -23,4 +23,5 @@ export declare class MessagesService {
     getChatMessages(ownerId: number, chatId: number): Promise<BusinessMessage[]>;
     getChatMessagesPaginated(ownerId: number, chatId: number, page: number, limit: number): Promise<BusinessMessage[]>;
     updateFilePathByFileId(fileId: string, filePath: string): Promise<void>;
+    findByMongoId(mongoId: string): Promise<BusinessMessage | null>;
 }

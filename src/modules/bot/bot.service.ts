@@ -1,11 +1,14 @@
 import { Injectable, OnApplicationBootstrap, OnApplicationShutdown, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Bot, InlineKeyboard, Keyboard, InputFile } from 'grammy';
 import { UsersService } from '../users/users.service';
 import { MessagesService } from '../messages/messages.service';
 import { LogsService } from '../logs/logs.service';
 import { PremiumService } from '../premium/premium.service';
 import { SmartMemoryService } from '../memory/smart-memory.service';
+import { SavedMessagesService } from '../saved/saved-messages.service';
+import { RemindersService } from '../reminders/reminders.service';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -21,7 +24,9 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
     private messagesService: MessagesService,
     private logsService: LogsService,
     private premiumService: PremiumService,
-    private smartMemoryService: SmartMemoryService
+    private smartMemoryService: SmartMemoryService,
+    private savedMessagesService: SavedMessagesService,
+    private remindersService: RemindersService,
   ) {
     const token = this.configService.get<string>('BOT_TOKEN');
     if (!token) {
@@ -38,7 +43,6 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
   async downloadFile(filePath?: string, fileId?: string) {
     const token = this.configService.get<string>('BOT_TOKEN');
 
-    // 1. Try downloading with the existing filePath if we have it
     if (filePath) {
       const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
       try {
@@ -52,7 +56,6 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
       }
     }
 
-    // 2. If filePath failed (e.g. 404) or was not provided, and we have fileId, get a new path from Telegram
     if (fileId) {
       this.logger.log(`Attempting to refresh file path for fileId: ${fileId}`);
       const file = await this.bot.api.getFile(fileId);
@@ -60,7 +63,6 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
         throw new Error('Telegram API did not return a file path for the file ID.');
       }
 
-      // Update the path in the database for future requests
       try {
         await this.messagesService.updateFilePathByFileId(fileId, file.file_path);
         this.logger.log(`Successfully updated DB with fresh file path for fileId: ${fileId}`);
@@ -68,7 +70,6 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
         this.logger.error(`Failed to update fresh file path in DB: ${dbErr.message}`);
       }
 
-      // Try downloading with the fresh path
       const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
       const response = await fetch(url);
       if (!response.ok) {
@@ -83,8 +84,7 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
   async onApplicationBootstrap() {
     this.logger.log('🤖 Initializing Telegram bot handlers...');
     this.registerHandlers();
-    
-    // Non-blocking start
+
     this.bot.start().catch((err) => {
       this.logger.error('❌ Grammy bot error on start:', err);
       this.logsService.logTelegramError('Bot start crash', err.stack);
@@ -98,10 +98,39 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
     this.logger.log('✅ Bot stopped');
   }
 
+  /**
+   * Har daqiqada eslatmalarni tekshirib, vaqti kelganlarini yuborish
+   */
+  @Cron(CronExpression.EVERY_MINUTE)
+  async processReminders() {
+    try {
+      const dueReminders = await this.remindersService.findDueReminders();
+      if (dueReminders.length === 0) return;
+
+      for (const reminder of dueReminders) {
+        try {
+          await this.bot.api.sendMessage(
+            reminder.owner_id,
+            `⏰ <b>Eslatma!</b>\n\n${this.escapeHTML(reminder.text)}\n\n@TrackMyChatBot`,
+            { parse_mode: 'HTML' }
+          );
+          await this.remindersService.markSent(String(reminder._id));
+          this.logger.log(`✅ Reminder sent to user ${reminder.owner_id}`);
+        } catch (err: any) {
+          this.logger.error(`❌ Failed to send reminder ${reminder._id}: ${err.message}`);
+          // Xato bo'lsa ham yuborilgan deb belgilaymiz (qayta urinmaslik uchun)
+          await this.remindersService.markSent(String(reminder._id));
+        }
+      }
+    } catch (err: any) {
+      this.logger.error(`Reminder cron error: ${err.message}`);
+    }
+  }
+
   private escapeHTML(str?: string): string {
     if (!str) return '';
     return str.replace(/[&<>'"]/g, (tag) => {
-      const chars = {
+      const chars: Record<string, string> = {
         '&': '&amp;',
         '<': '&lt;',
         '>': '&gt;',
@@ -158,14 +187,13 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
   private buildMainMenuKeyboard(user?: any) {
     const isPremium = this.premiumService.isPremiumActive(user);
 
-    // Free users must NEVER see premium buttons (⭐ Saved Items, ⏰ Reminders)
     if (!isPremium) {
       return { remove_keyboard: true as const };
     }
 
     return new Keyboard()
-      .text('⭐ Saved Items')
-      .text('⏰ Reminders')
+      .text('⭐ Saqlangan Xabarlar')
+      .text('⏰ Eslatmalar')
       .resized();
   }
 
@@ -173,7 +201,7 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
     try {
       if (!ctx.from?.id) return;
       const user = await this.usersService.findByChatId(ctx.from.id);
-      
+
       if (!user || !this.premiumService.isPremiumActive(user)) {
         return ctx.reply(
           `⭐ <b>Premium Obuna Talab Etiladi</b>\n\n` +
@@ -189,6 +217,25 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
     }
   }
 
+  private formatRemindAt(date: Date): string {
+    const now = new Date();
+    const diffMs = date.getTime() - now.getTime();
+    const diffMin = Math.round(diffMs / 60000);
+
+    if (diffMin < 60) {
+      return `${diffMin} daqiqadan keyin`;
+    } else if (diffMin < 1440) {
+      const hours = Math.floor(diffMin / 60);
+      const mins = diffMin % 60;
+      return mins > 0 ? `${hours} soat ${mins} daqiqadan keyin` : `${hours} soatdan keyin`;
+    } else {
+      return date.toLocaleString('uz-UZ', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    }
+  }
+
   private registerHandlers() {
     const bot = this.bot;
 
@@ -197,6 +244,7 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
       this.logsService.logTelegramError(err.message, err.stack, { ctx: err.ctx?.update });
     });
 
+    // ==================== /start ====================
     bot.command('start', async (ctx) => {
       try {
         const existingUser = await this.usersService.findByChatId(ctx.from.id);
@@ -207,7 +255,6 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
           first_name: ctx.from.first_name,
         });
 
-        // Log start event
         await this.logsService.logActivity('bot_start', ctx.from.id, {
           username: ctx.from.username,
           first_name: ctx.from.first_name,
@@ -217,18 +264,18 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
 
         if (isFirstTime) {
           const caption =
-            `👋 TrackMyChatBot'ga xush kelibsiz\n\n` +
-            `🕵️ Private chatlarda o‘chirilgan va tahrirlangan xabarlarni kuzatish uchun account’ingizni ulang.\n\n` +
-            `📱 Ulanish yo‘riqnomasi:\n\n` +
+            `👋 TrackMyChatBot'ga xush kelibsiz!\n\n` +
+            `🕵️ Private chatlarda o'chirilgan va tahrirlangan xabarlarni kuzatish uchun accountingizni ulang.\n\n` +
+            `📱 Ulanish yo'riqnomasi:\n\n` +
             `1️⃣ Telegram profilingizni oching\n` +
             `➡️ Profil → Tahrirlash\n\n` +
             `2️⃣ Pastga scroll qiling\n` +
-            `➡️ Chat Automation bo‘limini toping\n\n` +
+            `➡️ Chat Automation bo'limini toping\n\n` +
             `3️⃣ @TrackMyChatBot ni kiriting\n` +
-            `➡️ “Ulash” tugmasini bosing\n\n` +
+            `➡️ "Ulash" tugmasini bosing\n\n` +
             `✅ Bot muvaffaqiyatli ulandi.\n` +
-            `⚡ Endi edit va deleted message’lar real-time kuzatiladi.\n\n` +
-            `🔒 Sizning ma’lumotlaringiz xavfsiz saqlanadi.`;
+            `⚡ Endi edit va deleted xabarlar real-time kuzatiladi.\n\n` +
+            `🔒 Ma'lumotlaringiz xavfsiz saqlanadi.`;
 
           try {
             if (fs.existsSync(this.imagePath)) {
@@ -254,6 +301,7 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
       }
     });
 
+    // ==================== /help ====================
     bot.command('help', async (ctx) => {
       try {
         const user = await this.usersService.findByChatId(ctx.from.id);
@@ -263,14 +311,15 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
           `📖 <b>Yordam</b>\n\n` +
           `/start - Botni ishga tushirish\n` +
           `/stats - Statistika\n` +
-          `/settings - Sozlamalar (Xabarnomalarni o'chirish/yoqish)\n` +
+          `/settings - Sozlamalar (bildirishnomalarni o'chirish/yoqish)\n` +
           `/search &lt;so'z&gt; - Xabarlarni izlash\n` +
           `/export - Ma'lumotlarni yuklab olish\n`;
 
         if (isPrem) {
           text +=
             `⭐ /saved - Saqlangan xabarlar (Premium)\n` +
-            `⏰ /reminders - Eslatmalar (Premium)\n`;
+            `⏰ /eslatma &lt;vaqt&gt; &lt;matn&gt; - Eslatma qo'shish (Premium)\n` +
+            `⏰ /reminders - Eslatmalar ro'yxati (Premium)\n`;
         }
 
         text += `/help - Shu xabarni ko'rsatish\n\n@TrackMyChatBot`;
@@ -280,51 +329,75 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
       }
     });
 
-    // Premium Feature Handlers (Saved Items)
-    bot.hears('⭐ Saved Items', async (ctx) => {
-      await this.executePremiumFeature(ctx, 'Saved Items', async () => {
-        await ctx.reply('⭐ <b>Saved Items</b>\n\nSiz saqlagan xabarlar ro\'yxati hozircha bo\'sh.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+    // ==================== ⭐ SAVED ITEMS ====================
+    bot.hears(['⭐ Saqlangan Xabarlar', '⭐ Saved Items'], async (ctx) => {
+      await this.executePremiumFeature(ctx, 'Saqlangan Xabarlar', async () => {
+        await this.showSavedMessages(ctx, 1);
       });
     });
 
     bot.command('saved', async (ctx) => {
-      await this.executePremiumFeature(ctx, 'Saved Items', async () => {
-        await ctx.reply('⭐ <b>Saved Items</b>\n\nSiz saqlagan xabarlar ro\'yxati hozircha bo\'sh.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+      await this.executePremiumFeature(ctx, 'Saqlangan Xabarlar', async () => {
+        await this.showSavedMessages(ctx, 1);
       });
     });
 
-    // Premium Feature Handlers (Reminders)
-    bot.hears('⏰ Reminders', async (ctx) => {
-      await this.executePremiumFeature(ctx, 'Reminders', async () => {
-        await ctx.reply('⏰ <b>Reminders</b>\n\nFaol eslatmalar mavjud emas.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+    // ==================== ⏰ REMINDERS ====================
+    bot.hears(['⏰ Eslatmalar', '⏰ Reminders'], async (ctx) => {
+      await this.executePremiumFeature(ctx, 'Eslatmalar', async () => {
+        await this.showReminders(ctx);
       });
     });
 
     bot.command('reminders', async (ctx) => {
-      await this.executePremiumFeature(ctx, 'Reminders', async () => {
-        await ctx.reply('⏰ <b>Reminders</b>\n\nFaol eslatmalar mavjud emas.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+      await this.executePremiumFeature(ctx, 'Eslatmalar', async () => {
+        await this.showReminders(ctx);
       });
     });
 
-    // Modular future premium feature handler shortcuts
-    bot.command('aisearch', async (ctx) => {
-      await this.executePremiumFeature(ctx, 'AI Search', async () => {
-        await ctx.reply('🤖 <b>AI Search</b>\n\nSun\'iy intellekt orqali qidiruv tizimi.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+    // Yangi eslatma qo'shish: /eslatma 30m Shifokorga boring
+    bot.command(['eslatma', 'remind'], async (ctx) => {
+      await this.executePremiumFeature(ctx, 'Eslatmalar', async () => {
+        const input = ctx.match?.trim();
+        if (!input) {
+          await ctx.reply(
+            `⏰ <b>Eslatma qo'shish</b>\n\n` +
+            `📌 Format:\n` +
+            `<code>/eslatma 30m Shifokorga boring</code>\n` +
+            `<code>/eslatma 2s Uchrashuv bor</code>\n` +
+            `<code>/eslatma 1kun Loyihani topshir</code>\n` +
+            `<code>/eslatma 15:30 Kechki ovqat</code>\n\n` +
+            `⏱ Vaqt formatlari: <code>m</code>=daqiqa, <code>s</code>=soat, <code>kun</code>=kun`,
+            { parse_mode: 'HTML' }
+          );
+          return;
+        }
+
+        const parsed = this.remindersService.parseReminderText(input);
+        if (parsed.error || !parsed.remindAt) {
+          await ctx.reply(`❌ ${parsed.error || "Vaqt formatini tekshiring."}`, { parse_mode: 'HTML' });
+          return;
+        }
+
+        const activeCount = await this.remindersService.countActiveByOwner(ctx.from.id);
+        if (activeCount >= 20) {
+          await ctx.reply(`❌ Maksimal 20 ta faol eslatma bo'lishi mumkin.\n\nEski eslatmalarni /reminders orqali o'chiring.`);
+          return;
+        }
+
+        await this.remindersService.create(ctx.from.id, parsed.text, parsed.remindAt);
+
+        await ctx.reply(
+          `✅ <b>Eslatma saqlandi!</b>\n\n` +
+          `📝 Matn: <i>${this.escapeHTML(parsed.text)}</i>\n` +
+          `⏰ Vaqt: <b>${this.formatRemindAt(parsed.remindAt)}</b>\n\n` +
+          `@TrackMyChatBot`,
+          { parse_mode: 'HTML' }
+        );
       });
     });
 
-    bot.command('insights', async (ctx) => {
-      await this.executePremiumFeature(ctx, 'Smart Insights', async () => {
-        await ctx.reply('💡 <b>Smart Insights</b>\n\nChat tahlillari va tushunchalari.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
-      });
-    });
-
-    bot.command('collections', async (ctx) => {
-      await this.executePremiumFeature(ctx, 'Collections', async () => {
-        await ctx.reply(`📁 <b>Collections</b>\n\nXabarlar to'plamlari.\n\n@TrackMyChatBot`, { parse_mode: 'HTML' });
-      });
-    });
-
+    // ==================== Settings ====================
     bot.command('settings', async (ctx) => {
       try {
         const user = await this.usersService.findByChatId(ctx.from.id);
@@ -334,7 +407,7 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
           .text(user.notify_deletes !== false ? "✅ O'chirilgan xabarlar" : "❌ O'chirilgan xabarlar", 'toggle_deletes').row()
           .text(user.notify_edits !== false ? "✅ Tahrirlangan xabarlar" : "❌ Tahrirlangan xabarlar", 'toggle_edits');
 
-        await ctx.reply('⚙️ <b>Sozlamalar</b>\nQaysi xabarnomalarni olmoqchisiz?\n\n@TrackMyChatBot', {
+        await ctx.reply('⚙️ <b>Sozlamalar</b>\nQaysi bildirishnomalarni olmoqchisiz?\n\n@TrackMyChatBot', {
           parse_mode: 'HTML',
           reply_markup: keyboard,
         });
@@ -343,32 +416,117 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
       }
     });
 
+    // ==================== Callback Queries ====================
     bot.on('callback_query:data', async (ctx) => {
       try {
         const data = ctx.callbackQuery.data;
         const user = await this.usersService.findByChatId(ctx.from.id);
         if (!user) return ctx.answerCallbackQuery('Foydalanuvchi topilmadi.');
 
+        // Toggle bildirishnomalar
         if (data === 'toggle_deletes') {
           await this.usersService.toggleNotification(user.chat_id, 'deletes');
-        } else if (data === 'toggle_edits') {
-          await this.usersService.toggleNotification(user.chat_id, 'edits');
+          const updated = await this.usersService.findByChatId(user.chat_id);
+          if (!updated) return;
+          const keyboard = new InlineKeyboard()
+            .text(updated.notify_deletes !== false ? "✅ O'chirilgan xabarlar" : "❌ O'chirilgan xabarlar", 'toggle_deletes').row()
+            .text(updated.notify_edits !== false ? "✅ Tahrirlangan xabarlar" : "❌ Tahrirlangan xabarlar", 'toggle_edits');
+          await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => {});
+          await ctx.answerCallbackQuery('Sozlamalar saqlandi.');
+          return;
         }
 
-        const updated = await this.usersService.findByChatId(user.chat_id);
-        if (!updated) return;
+        if (data === 'toggle_edits') {
+          await this.usersService.toggleNotification(user.chat_id, 'edits');
+          const updated = await this.usersService.findByChatId(user.chat_id);
+          if (!updated) return;
+          const keyboard = new InlineKeyboard()
+            .text(updated.notify_deletes !== false ? "✅ O'chirilgan xabarlar" : "❌ O'chirilgan xabarlar", 'toggle_deletes').row()
+            .text(updated.notify_edits !== false ? "✅ Tahrirlangan xabarlar" : "❌ Tahrirlangan xabarlar", 'toggle_edits');
+          await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => {});
+          await ctx.answerCallbackQuery('Sozlamalar saqlandi.');
+          return;
+        }
 
-        const keyboard = new InlineKeyboard()
-          .text(updated.notify_deletes !== false ? "✅ O'chirilgan xabarlar" : "❌ O'chirilgan xabarlar", 'toggle_deletes').row()
-          .text(updated.notify_edits !== false ? "✅ Tahrirlangan xabarlar" : "❌ Tahrirlangan xabarlar", 'toggle_edits');
+        // Saqlangan xabarni o'chirish
+        if (data.startsWith('del_saved_')) {
+          const savedId = data.replace('del_saved_', '');
+          const deleted = await this.savedMessagesService.deleteById(savedId, ctx.from.id);
+          if (deleted) {
+            await ctx.editMessageText('🗑 Xabar saqlangan ro\'yxatdan o\'chirildi.\n\n@TrackMyChatBot').catch(() => {});
+            await ctx.answerCallbackQuery('O\'chirildi.');
+          } else {
+            await ctx.answerCallbackQuery('Topilmadi yoki sizning xabaringiz emas.');
+          }
+          return;
+        }
 
-        await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => {});
-        await ctx.answerCallbackQuery('Sozlamalar saqlandi.');
+        // Saqlangan xabarlar sahifalash
+        if (data.startsWith('saved_page_')) {
+          const page = parseInt(data.replace('saved_page_', ''), 10);
+          await ctx.answerCallbackQuery();
+          await this.showSavedMessages(ctx, page, true);
+          return;
+        }
+
+        // Eslatmani bekor qilish
+        if (data.startsWith('cancel_reminder_')) {
+          const reminderId = data.replace('cancel_reminder_', '');
+          const cancelled = await this.remindersService.cancel(reminderId, ctx.from.id);
+          if (cancelled) {
+            await ctx.editMessageText('✅ Eslatma bekor qilindi.\n\n@TrackMyChatBot').catch(() => {});
+            await ctx.answerCallbackQuery('Bekor qilindi.');
+          } else {
+            await ctx.answerCallbackQuery('Topilmadi yoki allaqachon yuborilgan.');
+          }
+          return;
+        }
+
+        // Xabarni saqlash (bildirishnomadagi ⭐ Saqlash tugmasi)
+        if (data.startsWith('save_msg_')) {
+          const msgMongoId = data.replace('save_msg_', '');
+          if (!this.premiumService.isPremiumActive(user)) {
+            await ctx.answerCallbackQuery('⭐ Bu funksiya Premium uchun.');
+            return;
+          }
+          const archived = await this.messagesService.findByMongoId(msgMongoId);
+          if (!archived) {
+            await ctx.answerCallbackQuery('Xabar topilmadi.');
+            return;
+          }
+          if (archived.message_id) {
+            const alreadySaved = await this.savedMessagesService.isAlreadySaved(ctx.from.id, archived.message_id);
+            if (alreadySaved) {
+              await ctx.answerCallbackQuery('Bu xabar allaqachon saqlangan!');
+              return;
+            }
+          }
+          await this.savedMessagesService.save({
+            owner_id: ctx.from.id,
+            business_connection_id: archived.business_connection_id,
+            original_message_id: archived.message_id,
+            chat_id: archived.chat_id,
+            chat_title: archived.chat_title,
+            sender_id: archived.sender_id,
+            sender_first_name: archived.sender_first_name,
+            sender_last_name: archived.sender_last_name,
+            sender_username: archived.sender_username,
+            text: archived.text,
+            media_type: archived.media_type,
+            media_file_id: archived.media_file_id,
+          });
+          await ctx.answerCallbackQuery('⭐ Saqlandi!');
+          await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard().text('✅ Saqlangan', 'noop') }).catch(() => {});
+          return;
+        }
+
+        await ctx.answerCallbackQuery();
       } catch (err: any) {
         this.logger.error(`Callback query error: ${err.message}`);
       }
     });
 
+    // ==================== /search ====================
     bot.command('search', async (ctx) => {
       try {
         const user = await this.usersService.findByChatId(ctx.from.id);
@@ -400,6 +558,7 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
       }
     });
 
+    // ==================== /export ====================
     bot.command('export', async (ctx) => {
       try {
         const user = await this.usersService.findByChatId(ctx.from.id);
@@ -423,6 +582,7 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
       }
     });
 
+    // ==================== /stats ====================
     bot.command('stats', async (ctx) => {
       try {
         const user = await this.usersService.findByChatId(ctx.from.id);
@@ -436,9 +596,9 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
 
         const text =
           `📊 <b>Statistika</b>\n\n` +
-          `📥 Jami: <b>${total}</b>\n` +
-          `🗑 Deleted: <b>${deleted}</b>\n` +
-          `✏️ Edited: <b>${edited}</b>\n\n` +
+          `📥 Jami xabarlar: <b>${total}</b>\n` +
+          `🗑 O'chirilgan: <b>${deleted}</b>\n` +
+          `✏️ Tahrirlangan: <b>${edited}</b>\n\n` +
           `@TrackMyChatBot`;
 
         await ctx.reply(text, { parse_mode: 'HTML' });
@@ -447,6 +607,26 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
       }
     });
 
+    // ==================== Premium stub buyruqlar ====================
+    bot.command('aisearch', async (ctx) => {
+      await this.executePremiumFeature(ctx, 'AI Search', async () => {
+        await ctx.reply('🤖 <b>AI Search</b>\n\nSun\'iy intellekt orqali qidiruv tizimi.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+      });
+    });
+
+    bot.command('insights', async (ctx) => {
+      await this.executePremiumFeature(ctx, 'Smart Insights', async () => {
+        await ctx.reply('💡 <b>Smart Insights</b>\n\nChat tahlillari va tushunchalari.\n\n@TrackMyChatBot', { parse_mode: 'HTML' });
+      });
+    });
+
+    bot.command('collections', async (ctx) => {
+      await this.executePremiumFeature(ctx, 'Collections', async () => {
+        await ctx.reply(`📁 <b>Collections</b>\n\nXabarlar to'plamlari.\n\n@TrackMyChatBot`, { parse_mode: 'HTML' });
+      });
+    });
+
+    // ==================== Business Connection ====================
     bot.on('business_connection', async (ctx) => {
       try {
         const conn = ctx.businessConnection;
@@ -487,6 +667,7 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
       }
     });
 
+    // ==================== Business Message (xabar saqlash) ====================
     bot.on('business_message', async (ctx) => {
       try {
         const msg = ctx.businessMessage;
@@ -517,13 +698,14 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
 
         const mediaInfo = await this.extractMedia(msg);
 
+        // BUG #9 FIX: Telegram msg.date Unix timestamp (seconds) → Date obyektiga aylantirish
         await this.messagesService.create({
           owner_id: owner_id || undefined,
           business_connection_id: msg.business_connection_id,
           message_id: msg.message_id,
           chat_id: msg.chat.id,
-          chat_title: msg.chat.title || 
-            (msg.chat.type === 'private' 
+          chat_title: msg.chat.title ||
+            (msg.chat.type === 'private'
               ? `${(msg.chat as any).first_name || ''} ${(msg.chat as any).last_name || ''}`.trim() || (msg.chat as any).username || 'Shaxsiy chat'
               : 'Shaxsiy chat'),
           chat_type: msg.chat.type,
@@ -535,11 +717,12 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
           media_type: mediaInfo.type || undefined,
           media_file_id: mediaInfo.file_id || undefined,
           media_file_path: mediaInfo.file_path || undefined,
+          date: new Date(msg.date * 1000), // ✅ BUG FIX
         });
 
         this.logger.log('✅ Message saved');
 
-        // Trigger Smart Memory (Knowledge Graph) extraction for active premium connections
+        // Smart Memory (Knowledge Graph) extraction
         if (owner_id) {
           this.smartMemoryService.processIncomingMessage({
             ownerId: owner_id,
@@ -559,6 +742,7 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
       }
     });
 
+    // ==================== Deleted Business Messages ====================
     bot.on('deleted_business_messages', async (ctx) => {
       try {
         const deletedData = ctx.deletedBusinessMessages;
@@ -593,25 +777,49 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
             `<i>${this.escapeHTML(archived.text || '[Media]')}</i>\n\n` +
             `@TrackMyChatBot`;
 
+          // Premium foydalanuvchilar uchun "Saqlash" tugmasi
+          const isPremium = this.premiumService.isPremiumActive(owner);
+          const keyboard = isPremium && archived.text
+            ? new InlineKeyboard().text('⭐ Saqlash', `save_msg_${archived._id}`)
+            : undefined;
+
           try {
             if (archived.media_type?.includes('Rasm')) {
-              await bot.api.sendPhoto(owner.chat_id, archived.media_file_id!, { caption, parse_mode: 'HTML' });
+              await bot.api.sendPhoto(owner.chat_id, archived.media_file_id!, {
+                caption, parse_mode: 'HTML',
+                ...(keyboard ? { reply_markup: keyboard } : {})
+              });
             } else if (archived.media_type?.includes('Video')) {
-              await bot.api.sendVideo(owner.chat_id, archived.media_file_id!, { caption, parse_mode: 'HTML' });
+              await bot.api.sendVideo(owner.chat_id, archived.media_file_id!, {
+                caption, parse_mode: 'HTML',
+                ...(keyboard ? { reply_markup: keyboard } : {})
+              });
             } else if (archived.media_type?.includes('Voice')) {
-              await bot.api.sendVoice(owner.chat_id, archived.media_file_id!, { caption, parse_mode: 'HTML' });
+              await bot.api.sendVoice(owner.chat_id, archived.media_file_id!, {
+                caption, parse_mode: 'HTML',
+              });
             } else if (archived.media_type?.includes('Document')) {
-              await bot.api.sendDocument(owner.chat_id, archived.media_file_id!, { caption, parse_mode: 'HTML' });
+              await bot.api.sendDocument(owner.chat_id, archived.media_file_id!, {
+                caption, parse_mode: 'HTML',
+              });
             } else if (archived.media_type?.includes('Sticker')) {
               await bot.api.sendSticker(owner.chat_id, archived.media_file_id!);
-              await bot.api.sendMessage(owner.chat_id, caption, { parse_mode: 'HTML' });
+              await bot.api.sendMessage(owner.chat_id, caption, {
+                parse_mode: 'HTML',
+                ...(keyboard ? { reply_markup: keyboard } : {})
+              });
             } else if (archived.media_type?.includes('Round Video')) {
               await bot.api.sendVideoNote(owner.chat_id, archived.media_file_id!);
               await bot.api.sendMessage(owner.chat_id, caption, { parse_mode: 'HTML' });
             } else if (archived.media_type?.includes('Audio')) {
-              await bot.api.sendAudio(owner.chat_id, archived.media_file_id!, { caption, parse_mode: 'HTML' });
+              await bot.api.sendAudio(owner.chat_id, archived.media_file_id!, {
+                caption, parse_mode: 'HTML',
+              });
             } else {
-              await bot.api.sendMessage(owner.chat_id, caption, { parse_mode: 'HTML' });
+              await bot.api.sendMessage(owner.chat_id, caption, {
+                parse_mode: 'HTML',
+                ...(keyboard ? { reply_markup: keyboard } : {})
+              });
             }
           } catch (err: any) {
             this.logger.error(`❌ Send deleted message notification error: ${err.message}`);
@@ -622,6 +830,7 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
       }
     });
 
+    // ==================== Edited Business Message ====================
     bot.on('edited_business_message', async (ctx) => {
       try {
         const editedMsg = ctx.editedBusinessMessage;
@@ -659,7 +868,16 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
           `<i>${this.escapeHTML(newText)}</i>\n\n` +
           `@TrackMyChatBot`;
 
-        await bot.api.sendMessage(owner.chat_id, report, { parse_mode: 'HTML' });
+        // Premium foydalanuvchilar uchun "Saqlash" tugmasi
+        const isPremium = this.premiumService.isPremiumActive(owner);
+        const keyboard = isPremium && oldMsg.text
+          ? new InlineKeyboard().text('⭐ Eski versiyani saqlash', `save_msg_${oldMsg._id}`)
+          : undefined;
+
+        await bot.api.sendMessage(owner.chat_id, report, {
+          parse_mode: 'HTML',
+          ...(keyboard ? { reply_markup: keyboard } : {})
+        });
 
         oldMsg.edit_history.push({ text: oldMsg.text || '', date: new Date() });
         oldMsg.text = newText;
@@ -675,5 +893,93 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
         this.logsService.logTelegramError('edit_message_failed', err.stack, { messageId: ctx.editedBusinessMessage?.message_id });
       }
     });
+
+  }
+
+  // ==================== Helper: Saqlangan xabarlarni ko'rsatish ====================
+  private async showSavedMessages(ctx: any, page: number, editMessage = false) {
+    const { items, total, limit } = await this.savedMessagesService.findByOwner(ctx.from.id, page, 5);
+
+    if (total === 0) {
+      const text =
+        `⭐ <b>Saqlangan Xabarlar</b>\n\n` +
+        `Hozircha saqlangan xabar yo'q.\n\n` +
+        `💡 <i>Xabarlar o'chirilganda yoki tahrirlanganda bildirishnomada "⭐ Saqlash" tugmasi paydo bo'ladi.</i>\n\n` +
+        `@TrackMyChatBot`;
+      if (editMessage) {
+        await ctx.editMessageText(text, { parse_mode: 'HTML' }).catch(() => ctx.reply(text, { parse_mode: 'HTML' }));
+      } else {
+        await ctx.reply(text, { parse_mode: 'HTML' });
+      }
+      return;
+    }
+
+    const totalPages = Math.ceil(total / limit);
+    let text = `⭐ <b>Saqlangan Xabarlar</b> (${total} ta)\n`;
+    text += `📄 Sahifa ${page}/${totalPages}\n\n`;
+
+    items.forEach((saved, i) => {
+      const num = (page - 1) * limit + i + 1;
+      const senderName = this.escapeHTML(saved.sender_first_name || 'Noma\'lum');
+      const chatTitle = this.escapeHTML(saved.chat_title || 'Noma\'lum chat');
+      const preview = this.escapeHTML((saved.text || '[Media]').substring(0, 80));
+      const savedDate = new Date(saved.saved_at).toLocaleDateString('uz-UZ');
+      text += `${num}. 👤 ${senderName} | 🏠 ${chatTitle}\n`;
+      text += `   📝 <i>${preview}</i>\n`;
+      text += `   📅 ${savedDate}\n\n`;
+    });
+
+    // Sahifalash va o'chirish tugmalari
+    const keyboard = new InlineKeyboard();
+    items.forEach((saved) => {
+      keyboard.text(`🗑 #${items.indexOf(saved) + (page - 1) * limit + 1} ni o'chirish`, `del_saved_${saved._id}`).row();
+    });
+
+    if (totalPages > 1) {
+      if (page > 1) keyboard.text('◀️ Oldingi', `saved_page_${page - 1}`);
+      if (page < totalPages) keyboard.text('Keyingi ▶️', `saved_page_${page + 1}`);
+    }
+
+    text += `@TrackMyChatBot`;
+
+    if (editMessage) {
+      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() =>
+        ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard })
+      );
+    } else {
+      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+    }
+  }
+
+  // ==================== Helper: Eslatmalarni ko'rsatish ====================
+  private async showReminders(ctx: any) {
+    const reminders = await this.remindersService.findActiveByOwner(ctx.from.id);
+
+    if (reminders.length === 0) {
+      await ctx.reply(
+        `⏰ <b>Eslatmalar</b>\n\n` +
+        `Faol eslatmalar mavjud emas.\n\n` +
+        `💡 Yangi eslatma qo'shish uchun:\n` +
+        `<code>/eslatma 30m Shifokorga boring</code>\n` +
+        `<code>/eslatma 2s Uchrashuv bor</code>\n` +
+        `<code>/eslatma 15:30 Kechki ovqat</code>\n\n` +
+        `@TrackMyChatBot`,
+        { parse_mode: 'HTML' }
+      );
+      return;
+    }
+
+    let text = `⏰ <b>Faol Eslatmalar</b> (${reminders.length} ta)\n\n`;
+    const keyboard = new InlineKeyboard();
+
+    reminders.forEach((reminder, i) => {
+      const timeStr = this.formatRemindAt(new Date(reminder.remind_at));
+      text += `${i + 1}. 📝 <i>${this.escapeHTML(reminder.text)}</i>\n`;
+      text += `   ⏰ ${timeStr}\n\n`;
+      keyboard.text(`❌ #${i + 1} bekor qilish`, `cancel_reminder_${reminder._id}`).row();
+    });
+
+    text += `@TrackMyChatBot`;
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
   }
 }

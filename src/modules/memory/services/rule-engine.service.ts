@@ -43,7 +43,9 @@ export class RuleEngineService {
   private readonly MAPS_REGEX = /(?:https?:\/\/)?(?:maps\.google\.com|goo\.gl\/maps|maps\.app\.goo\.gl)\/[^\s]+/gi;
   
   // Custom identifier patterns
-  private readonly FLIGHT_REGEX = /\b([A-Z]{2}\d{3,4})\b/g;
+  // Haqiqiy avia reyis kodlari: HY123, HY1234, AF447 (IATA airline kodi + 3-4 raqam)
+  // Soxta positive'larni kamaytirish uchun kontekst tekshiruvi ham qo'shiladi
+  private readonly FLIGHT_REGEX = /\b(HY|AF|BA|LH|TK|EK|QR|SU|S7|U6|UZ|AK|AA|UA|DL|WS|AC|FR|VY|W6|RYR|EZY)\d{1,4}\b/g;
   private readonly TRACKING_REGEX = /\b(1Z[0-9A-Z]{16}|[0-9]{12,22})\b/g;
   private readonly CARD_REGEX = /\b(?:\d[ -]*?){13,16}\b/g;
   private readonly INVOICE_REGEX = /\b(?:INV|INVOICE|SCH|BILL)[-:\s]?#?\d{3,10}\b/gi;

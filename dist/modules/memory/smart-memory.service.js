@@ -204,16 +204,18 @@ let SmartMemoryService = SmartMemoryService_1 = class SmartMemoryService {
     async updateProfileSummary(profile) {
         const factsList = [];
         if (profile.companies.length > 0)
-            factsList.push(`Works at ${profile.companies[0]}`);
+            factsList.push(`${profile.companies[0]} kompaniyasida ishlaydi`);
         if (profile.locations.length > 0)
-            factsList.push(`Lives in ${profile.locations[0]}`);
+            factsList.push(`${profile.locations[0]} shahrida yashaydi`);
         if (profile.education.length > 0)
-            factsList.push(`Studied at ${profile.education[0]}`);
+            factsList.push(`${profile.education[0]} da tahsil olgan`);
         if (profile.skills.length > 0)
-            factsList.push(`Skills: ${profile.skills.slice(0, 4).join(', ')}`);
+            factsList.push(`Ko'nikmalar: ${profile.skills.slice(0, 4).join(', ')}`);
         if (profile.interests.length > 0)
-            factsList.push(`Interested in ${profile.interests.slice(0, 3).join(', ')}`);
-        profile.summary = factsList.join('. ') + (factsList.length > 0 ? '.' : 'Contact profile created.');
+            factsList.push(`Qiziqishlari: ${profile.interests.slice(0, 3).join(', ')}`);
+        profile.summary = factsList.length > 0
+            ? factsList.join('. ') + '.'
+            : 'Kontakt profili yaratildi.';
         await profile.save();
     }
     async getMemoryStats(ownerId) {

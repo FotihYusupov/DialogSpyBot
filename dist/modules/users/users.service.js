@@ -43,10 +43,10 @@ let UsersService = class UsersService {
         if (!user)
             return null;
         if (type === 'deletes') {
-            user.notify_deletes = user.notify_deletes === false;
+            user.notify_deletes = user.notify_deletes === false ? true : false;
         }
         else {
-            user.notify_edits = user.notify_edits === false;
+            user.notify_edits = user.notify_edits === false ? true : false;
         }
         return user.save();
     }

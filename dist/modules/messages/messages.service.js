@@ -227,6 +227,14 @@ let MessagesService = class MessagesService {
     async updateFilePathByFileId(fileId, filePath) {
         await this.msgModel.updateMany({ media_file_id: fileId }, { media_file_path: filePath }).exec();
     }
+    async findByMongoId(mongoId) {
+        try {
+            return this.msgModel.findById(mongoId).exec();
+        }
+        catch {
+            return null;
+        }
+    }
 };
 exports.MessagesService = MessagesService;
 exports.MessagesService = MessagesService = __decorate([

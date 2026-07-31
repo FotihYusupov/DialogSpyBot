@@ -9,6 +9,7 @@ import { AIExtractorService } from './services/ai-extractor.service';
 import { SmartMemoryService } from './smart-memory.service';
 import { MemoryController } from './memory.controller';
 import { UsersModule } from '../users/users.module';
+import { PremiumModule } from '../premium/premium.module';
 
 @Global()
 @Module({
@@ -20,6 +21,7 @@ import { UsersModule } from '../users/users.module';
       { name: InterestScore.name, schema: InterestScoreSchema },
     ]),
     UsersModule,
+    PremiumModule,
   ],
   controllers: [MemoryController],
   providers: [RuleEngineService, AIExtractorService, SmartMemoryService],
