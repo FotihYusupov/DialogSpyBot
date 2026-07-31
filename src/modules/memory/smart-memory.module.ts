@@ -1,4 +1,4 @@
-import { Module, Global } from '@nestjs/common';
+import { Module, Global, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ContactProfile, ContactProfileSchema } from './schemas/contact-profile.schema';
 import { KnowledgeFact, KnowledgeFactSchema } from './schemas/knowledge-fact.schema';
@@ -20,11 +20,12 @@ import { PremiumModule } from '../premium/premium.module';
       { name: TimelineEvent.name, schema: TimelineEventSchema },
       { name: InterestScore.name, schema: InterestScoreSchema },
     ]),
-    UsersModule,
-    PremiumModule,
+    forwardRef(() => UsersModule),
+    forwardRef(() => PremiumModule),
   ],
   controllers: [MemoryController],
   providers: [RuleEngineService, AIExtractorService, SmartMemoryService],
   exports: [SmartMemoryService],
 })
 export class SmartMemoryModule {}
+

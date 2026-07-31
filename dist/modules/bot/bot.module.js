@@ -12,10 +12,8 @@ const bot_service_1 = require("./bot.service");
 const users_module_1 = require("../users/users.module");
 const messages_module_1 = require("../messages/messages.module");
 const logs_module_1 = require("../logs/logs.module");
-const premium_module_1 = require("../premium/premium.module");
 const saved_messages_module_1 = require("../saved/saved-messages.module");
 const reminders_module_1 = require("../reminders/reminders.module");
-const smart_memory_module_1 = require("../memory/smart-memory.module");
 let BotModule = class BotModule {
 };
 exports.BotModule = BotModule;
@@ -25,8 +23,6 @@ exports.BotModule = BotModule = __decorate([
             (0, common_1.forwardRef)(() => users_module_1.UsersModule),
             messages_module_1.MessagesModule,
             logs_module_1.LogsModule,
-            premium_module_1.PremiumModule,
-            smart_memory_module_1.SmartMemoryModule,
             saved_messages_module_1.SavedMessagesModule,
             reminders_module_1.RemindersModule,
         ],
