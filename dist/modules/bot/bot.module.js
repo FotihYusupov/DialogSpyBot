@@ -9,7 +9,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.BotModule = void 0;
 const common_1 = require("@nestjs/common");
 const bot_service_1 = require("./bot.service");
-const users_module_1 = require("../users/users.module");
 const messages_module_1 = require("../messages/messages.module");
 const logs_module_1 = require("../logs/logs.module");
 const saved_messages_module_1 = require("../saved/saved-messages.module");
@@ -20,7 +19,6 @@ exports.BotModule = BotModule;
 exports.BotModule = BotModule = __decorate([
     (0, common_1.Module)({
         imports: [
-            (0, common_1.forwardRef)(() => users_module_1.UsersModule),
             messages_module_1.MessagesModule,
             logs_module_1.LogsModule,
             saved_messages_module_1.SavedMessagesModule,

@@ -1,4 +1,4 @@
-import { Module, Global, forwardRef } from '@nestjs/common';
+import { Module, Global } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ContactProfile, ContactProfileSchema } from './schemas/contact-profile.schema';
 import { KnowledgeFact, KnowledgeFactSchema } from './schemas/knowledge-fact.schema';
@@ -8,8 +8,6 @@ import { RuleEngineService } from './services/rule-engine.service';
 import { AIExtractorService } from './services/ai-extractor.service';
 import { SmartMemoryService } from './smart-memory.service';
 import { MemoryController } from './memory.controller';
-import { UsersModule } from '../users/users.module';
-import { PremiumModule } from '../premium/premium.module';
 
 @Global()
 @Module({
@@ -20,12 +18,9 @@ import { PremiumModule } from '../premium/premium.module';
       { name: TimelineEvent.name, schema: TimelineEventSchema },
       { name: InterestScore.name, schema: InterestScoreSchema },
     ]),
-    forwardRef(() => UsersModule),
-    forwardRef(() => PremiumModule),
   ],
   controllers: [MemoryController],
   providers: [RuleEngineService, AIExtractorService, SmartMemoryService],
   exports: [SmartMemoryService],
 })
 export class SmartMemoryModule {}
-
