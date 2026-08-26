@@ -44,6 +44,15 @@ export declare const InterestScoreSchema: import("mongoose").Schema<InterestScor
     }, "id"> & {
         id: string;
     }>;
+    score?: import("mongoose").SchemaDefinitionProperty<number, InterestScore, Document<unknown, {}, InterestScore, {
+        id: string;
+    }, import("mongoose").DefaultSchemaOptions> & Omit<InterestScore & Required<{
+        _id: import("mongoose").Types.ObjectId;
+    }> & {
+        __v: number;
+    }, "id"> & {
+        id: string;
+    }>;
     ownerId?: import("mongoose").SchemaDefinitionProperty<number, InterestScore, Document<unknown, {}, InterestScore, {
         id: string;
     }, import("mongoose").DefaultSchemaOptions> & Omit<InterestScore & Required<{
@@ -63,15 +72,6 @@ export declare const InterestScoreSchema: import("mongoose").Schema<InterestScor
         id: string;
     }>;
     topic?: import("mongoose").SchemaDefinitionProperty<string, InterestScore, Document<unknown, {}, InterestScore, {
-        id: string;
-    }, import("mongoose").DefaultSchemaOptions> & Omit<InterestScore & Required<{
-        _id: import("mongoose").Types.ObjectId;
-    }> & {
-        __v: number;
-    }, "id"> & {
-        id: string;
-    }>;
-    score?: import("mongoose").SchemaDefinitionProperty<number, InterestScore, Document<unknown, {}, InterestScore, {
         id: string;
     }, import("mongoose").DefaultSchemaOptions> & Omit<InterestScore & Required<{
         _id: import("mongoose").Types.ObjectId;

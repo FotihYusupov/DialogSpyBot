@@ -11,15 +11,27 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var MessagesService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MessagesService = void 0;
 const common_1 = require("@nestjs/common");
 const mongoose_1 = require("@nestjs/mongoose");
 const mongoose_2 = require("mongoose");
 const message_schema_1 = require("./schemas/message.schema");
-let MessagesService = class MessagesService {
+let MessagesService = MessagesService_1 = class MessagesService {
     constructor(msgModel) {
         this.msgModel = msgModel;
+        this.logger = new common_1.Logger(MessagesService_1.name);
+    }
+    async onModuleInit() {
+        try {
+            this.logger.log('Ensuring BusinessMessage indexes are synced in MongoDB...');
+            await this.msgModel.createIndexes();
+            this.logger.log('BusinessMessage indexes synced successfully.');
+        }
+        catch (err) {
+            this.logger.error(`Error building BusinessMessage indexes: ${err.message}`);
+        }
     }
     async create(data) {
         return this.msgModel.create(data);
@@ -37,11 +49,28 @@ let MessagesService = class MessagesService {
         }, { is_deleted: true }, { returnDocument: 'after' }).exec();
     }
     async search(businessConnectionId, query, limit = 10) {
+        const cleanQuery = query.trim();
+        if (!cleanQuery)
+            return [];
+        try {
+            const textResults = await this.msgModel.find({
+                business_connection_id: businessConnectionId,
+                $text: { $search: cleanQuery }
+            }, { score: { $meta: 'textScore' } })
+                .sort({ score: { $meta: 'textScore' }, date: -1 })
+                .limit(limit)
+                .exec();
+            if (textResults && textResults.length > 0) {
+                return textResults;
+            }
+        }
+        catch (err) {
+        }
         return this.msgModel.find({
             business_connection_id: businessConnectionId,
             $or: [
-                { text: { $regex: query, $options: 'i' } },
-                { 'edit_history.text': { $regex: query, $options: 'i' } },
+                { text: { $regex: cleanQuery, $options: 'i' } },
+                { 'edit_history.text': { $regex: cleanQuery, $options: 'i' } },
             ],
         })
             .limit(limit)
@@ -57,6 +86,9 @@ let MessagesService = class MessagesService {
     }
     async countTotal(ownerId, connectionIds = [], primaryConnectionId) {
         const filter = this.buildUserMessagesFilter(ownerId, connectionIds, primaryConnectionId);
+        if (Object.keys(filter).length === 0) {
+            return this.msgModel.estimatedDocumentCount().exec();
+        }
         return this.msgModel.countDocuments(filter).exec();
     }
     async countDeleted(ownerId, connectionIds = [], primaryConnectionId) {
@@ -86,7 +118,7 @@ let MessagesService = class MessagesService {
         return { $or: conditions };
     }
     async countAllMessages() {
-        return this.msgModel.countDocuments().exec();
+        return this.msgModel.estimatedDocumentCount().exec();
     }
     async countAllDeleted() {
         return this.msgModel.countDocuments({ is_deleted: true }).exec();
@@ -175,7 +207,7 @@ let MessagesService = class MessagesService {
                     last_message_media: { $last: '$media_type' },
                     last_message_date: { $last: '$date' },
                     sender_names: {
-                        $push: {
+                        $addToSet: {
                             sender_id: '$sender_id',
                             first_name: '$sender_first_name',
                             last_name: '$sender_last_name',
@@ -237,7 +269,7 @@ let MessagesService = class MessagesService {
     }
 };
 exports.MessagesService = MessagesService;
-exports.MessagesService = MessagesService = __decorate([
+exports.MessagesService = MessagesService = MessagesService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, mongoose_1.InjectModel)(message_schema_1.BusinessMessage.name)),
     __metadata("design:paramtypes", [mongoose_2.Model])

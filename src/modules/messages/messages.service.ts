@@ -1,13 +1,25 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { BusinessMessage } from './schemas/message.schema';
 
 @Injectable()
-export class MessagesService {
+export class MessagesService implements OnModuleInit {
+  private readonly logger = new Logger(MessagesService.name);
+
   constructor(
     @InjectModel(BusinessMessage.name) private msgModel: Model<BusinessMessage>
   ) {}
+
+  async onModuleInit() {
+    try {
+      this.logger.log('Ensuring BusinessMessage indexes are synced in MongoDB...');
+      await this.msgModel.createIndexes();
+      this.logger.log('BusinessMessage indexes synced successfully.');
+    } catch (err: any) {
+      this.logger.error(`Error building BusinessMessage indexes: ${err.message}`);
+    }
+  }
 
   async create(data: Partial<BusinessMessage>): Promise<BusinessMessage> {
     return this.msgModel.create(data);
@@ -32,11 +44,33 @@ export class MessagesService {
   }
 
   async search(businessConnectionId: string, query: string, limit = 10): Promise<BusinessMessage[]> {
+    const cleanQuery = query.trim();
+    if (!cleanQuery) return [];
+
+    try {
+      const textResults = await this.msgModel.find(
+        {
+          business_connection_id: businessConnectionId,
+          $text: { $search: cleanQuery }
+        },
+        { score: { $meta: 'textScore' } }
+      )
+      .sort({ score: { $meta: 'textScore' }, date: -1 })
+      .limit(limit)
+      .exec();
+
+      if (textResults && textResults.length > 0) {
+        return textResults;
+      }
+    } catch (err) {
+      // Fallback if text search expression is invalid
+    }
+
     return this.msgModel.find({
       business_connection_id: businessConnectionId,
       $or: [
-        { text: { $regex: query, $options: 'i' } },
-        { 'edit_history.text': { $regex: query, $options: 'i' } },
+        { text: { $regex: cleanQuery, $options: 'i' } },
+        { 'edit_history.text': { $regex: cleanQuery, $options: 'i' } },
       ],
     })
     .limit(limit)
@@ -54,6 +88,9 @@ export class MessagesService {
 
   async countTotal(ownerId?: number, connectionIds: string[] = [], primaryConnectionId?: string): Promise<number> {
     const filter = this.buildUserMessagesFilter(ownerId, connectionIds, primaryConnectionId);
+    if (Object.keys(filter).length === 0) {
+      return this.msgModel.estimatedDocumentCount().exec();
+    }
     return this.msgModel.countDocuments(filter).exec();
   }
 
@@ -88,7 +125,7 @@ export class MessagesService {
 
   // Dashboard calculations
   async countAllMessages(): Promise<number> {
-    return this.msgModel.countDocuments().exec();
+    return this.msgModel.estimatedDocumentCount().exec();
   }
 
   async countAllDeleted(): Promise<number> {
@@ -186,7 +223,7 @@ export class MessagesService {
           last_message_media: { $last: '$media_type' },
           last_message_date: { $last: '$date' },
           sender_names: {
-            $push: {
+            $addToSet: {
               sender_id: '$sender_id',
               first_name: '$sender_first_name',
               last_name: '$sender_last_name',

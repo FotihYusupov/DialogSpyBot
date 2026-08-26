@@ -1,8 +1,11 @@
+import { OnModuleInit } from '@nestjs/common';
 import { Model } from 'mongoose';
 import { BusinessMessage } from './schemas/message.schema';
-export declare class MessagesService {
+export declare class MessagesService implements OnModuleInit {
     private msgModel;
+    private readonly logger;
     constructor(msgModel: Model<BusinessMessage>);
+    onModuleInit(): Promise<void>;
     create(data: Partial<BusinessMessage>): Promise<BusinessMessage>;
     findOne(businessConnectionId: string, messageId: number): Promise<BusinessMessage | null>;
     markDeleted(businessConnectionId: string, messageId: number): Promise<BusinessMessage | null>;

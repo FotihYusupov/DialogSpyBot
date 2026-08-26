@@ -33,12 +33,32 @@ export class MessagesController {
     if (ownerId && ownerId !== 'all') {
       filter.owner_id = Number(ownerId);
     }
-    if (search) {
-      filter.$or = [
-        { text: { $regex: search, $options: 'i' } },
-        { sender_username: { $regex: search, $options: 'i' } },
-        { sender_first_name: { $regex: search, $options: 'i' } }
-      ];
+
+    const cleanSearch = (search || '').trim();
+    let isTextSearchUsed = false;
+
+    if (cleanSearch) {
+      // Smart search: Try $text search first for maximum speed using inverted index (<15ms)
+      try {
+        const textFilter = { ...filter, $text: { $search: cleanSearch } };
+        const textCount = await this.msgModel.countDocuments(textFilter).exec();
+        if (textCount > 0) {
+          filter.$text = { $search: cleanSearch };
+          isTextSearchUsed = true;
+        }
+      } catch (e) {
+        // Fallback if query string has invalid syntax for $text parser
+      }
+
+      if (!isTextSearchUsed) {
+        const escaped = cleanSearch.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+        filter.$or = [
+          { text: { $regex: escaped, $options: 'i' } },
+          { sender_username: { $regex: escaped, $options: 'i' } },
+          { sender_first_name: { $regex: escaped, $options: 'i' } },
+          { chat_title: { $regex: escaped, $options: 'i' } }
+        ];
+      }
     }
 
     const parsedPage = parseInt(page, 10);
@@ -48,27 +68,35 @@ export class MessagesController {
     const limitNum = isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(100, parsedLimit);
 
     const skip = (pageNum - 1) * limitNum;
-    const [items, total] = await Promise.all([
-      this.msgModel.aggregate([
-        { $match: filter },
-        { $sort: { createdAt: -1, _id: -1 } },
-        { $skip: skip },
-        { $limit: limitNum },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'owner_id',
-            foreignField: 'chat_id',
-            as: 'owner'
-          }
-        },
-        {
-          $addFields: {
-            owner: { $arrayElemAt: ['$owner', 0] }
-          }
+
+    // Fast count: estimatedDocumentCount if filter is completely empty
+    const totalPromise = (Object.keys(filter).length === 0)
+      ? this.msgModel.estimatedDocumentCount().exec()
+      : this.msgModel.countDocuments(filter).exec();
+
+    const pipeline: any[] = [
+      { $match: filter },
+      { $sort: isTextSearchUsed ? { score: { $meta: 'textScore' }, createdAt: -1, _id: -1 } : { createdAt: -1, _id: -1 } },
+      { $skip: skip },
+      { $limit: limitNum },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'owner_id',
+          foreignField: 'chat_id',
+          as: 'owner'
         }
-      ]).exec(),
-      this.msgModel.countDocuments(filter).exec()
+      },
+      {
+        $addFields: {
+          owner: { $arrayElemAt: ['$owner', 0] }
+        }
+      }
+    ];
+
+    const [items, total] = await Promise.all([
+      this.msgModel.aggregate(pipeline).exec(),
+      totalPromise
     ]);
 
     return { items, total, page: pageNum, limit: limitNum };
@@ -84,10 +112,7 @@ export class MessagesController {
     @Query('limit') limit: any = 20
   ) {
     const filter: any = {
-      $or: [
-        { media_type: { $exists: true, $ne: null } },
-        { media_file_id: { $exists: true, $ne: null } }
-      ]
+      media_type: { $exists: true, $ne: null }
     };
 
     if (category && category !== 'all') {
@@ -114,8 +139,10 @@ export class MessagesController {
       filter.owner_id = Number(ownerId);
     }
 
-    if (search) {
-      filter.text = { $regex: search, $options: 'i' };
+    if (search && search.trim()) {
+      const cleanSearch = search.trim();
+      const escaped = cleanSearch.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      filter.text = { $regex: escaped, $options: 'i' };
     }
 
     const parsedPage = parseInt(page, 10);
