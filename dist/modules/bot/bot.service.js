@@ -215,16 +215,15 @@ let BotService = BotService_1 = class BotService {
     }
     buildMainMenuKeyboard(user) {
         const isPremium = this.premiumService.isPremiumActive(user);
-        const keyboard = new grammy_1.Keyboard()
-            .text('💬 Chatlar Tarixi (PDF)')
-            .row();
-        if (isPremium) {
-            keyboard
-                .text('⭐ Saqlangan Xabarlar')
-                .text('⏰ Eslatmalar')
-                .row();
+        if (!isPremium) {
+            return { remove_keyboard: true };
         }
-        return keyboard.resized();
+        return new grammy_1.Keyboard()
+            .text('💬 Chatlar Tarixi (PDF)')
+            .row()
+            .text('⭐ Saqlangan Xabarlar')
+            .text('⏰ Eslatmalar')
+            .resized();
     }
     async executePremiumFeature(ctx, featureName, action) {
         try {
@@ -324,14 +323,14 @@ let BotService = BotService_1 = class BotService {
                 const isPrem = this.premiumService.isPremiumActive(user);
                 let text = `📖 <b>Yordam</b>\n\n` +
                     `/start - Botni ishga tushirish\n` +
-                    `/chats - Saqlangan chatlar ro'yxati va 1 haftalik chatni yuklab olish (PDF)\n` +
                     `/stats - Statistika\n` +
                     `/settings - Sozlamalar (bildirishnomalarni o'chirish/yoqish)\n` +
-                    `/search &lt;so'z&gt; - Xabarlarni izlash\n` +
-                    `/export - Ma'lumotlarni yuklab olish\n`;
+                    `/search &lt;so'z&gt; - Xabarlarni izlash\n`;
                 if (isPrem) {
                     text +=
-                        `⭐ /saved - Saqlangan xabarlar (Premium)\n` +
+                        `💬 /chats - Chatlar tarixi va 1 haftalik PDF (Premium)\n` +
+                            `📂 /export - Ma'lumotlarni yuklab olish (Premium)\n` +
+                            `⭐ /saved - Saqlangan xabarlar (Premium)\n` +
                             `⏰ /eslatma &lt;vaqt&gt; &lt;matn&gt; - Eslatma qo'shish (Premium)\n` +
                             `⏰ /reminders - Eslatmalar ro'yxati (Premium)\n`;
                 }
@@ -343,10 +342,14 @@ let BotService = BotService_1 = class BotService {
             }
         });
         bot.hears(['💬 Chatlar Tarixi (PDF)', '💬 Chatlar Tarixi', 'Chatlar Tarixi'], async (ctx) => {
-            await this.showUserChats(ctx, 1);
+            await this.executePremiumFeature(ctx, 'Chatlar Tarixi (PDF)', async () => {
+                await this.showUserChats(ctx, 1);
+            });
         });
         bot.command(['chats', 'chatlar', 'history'], async (ctx) => {
-            await this.showUserChats(ctx, 1);
+            await this.executePremiumFeature(ctx, 'Chatlar Tarixi (PDF)', async () => {
+                await this.showUserChats(ctx, 1);
+            });
         });
         bot.hears(['⭐ Saqlangan Xabarlar', '⭐ Saved Items'], async (ctx) => {
             await this.executePremiumFeature(ctx, 'Saqlangan Xabarlar', async () => {
@@ -516,12 +519,20 @@ let BotService = BotService_1 = class BotService {
                     return;
                 }
                 if (data.startsWith('chats_page_')) {
+                    if (!this.premiumService.isPremiumActive(user)) {
+                        await ctx.answerCallbackQuery({ text: '⭐ Bu funksiya faqat Premium foydalanuvchilar uchun.', show_alert: true });
+                        return;
+                    }
                     const page = parseInt(data.replace('chats_page_', ''), 10);
                     await ctx.answerCallbackQuery();
                     await this.showUserChats(ctx, page, true);
                     return;
                 }
                 if (data.startsWith('dl_chat_')) {
+                    if (!this.premiumService.isPremiumActive(user)) {
+                        await ctx.answerCallbackQuery({ text: '⭐ Bu funksiya faqat Premium foydalanuvchilar uchun.', show_alert: true });
+                        return;
+                    }
                     const targetChatId = Number(data.replace('dl_chat_', ''));
                     await ctx.answerCallbackQuery('PDF tayyorlanmoqda, iltimos kuting...');
                     await this.handleDownloadChatPdf(ctx, targetChatId);

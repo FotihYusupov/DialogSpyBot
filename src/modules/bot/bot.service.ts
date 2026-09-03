@@ -188,18 +188,16 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
   private buildMainMenuKeyboard(user?: any) {
     const isPremium = this.premiumService.isPremiumActive(user);
 
-    const keyboard = new Keyboard()
-      .text('💬 Chatlar Tarixi (PDF)')
-      .row();
-
-    if (isPremium) {
-      keyboard
-        .text('⭐ Saqlangan Xabarlar')
-        .text('⏰ Eslatmalar')
-        .row();
+    if (!isPremium) {
+      return { remove_keyboard: true as const };
     }
 
-    return keyboard.resized();
+    return new Keyboard()
+      .text('💬 Chatlar Tarixi (PDF)')
+      .row()
+      .text('⭐ Saqlangan Xabarlar')
+      .text('⏰ Eslatmalar')
+      .resized();
   }
 
   private async executePremiumFeature(ctx: any, featureName: string, action: (user: any) => Promise<void>) {
@@ -315,14 +313,14 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
         let text =
           `📖 <b>Yordam</b>\n\n` +
           `/start - Botni ishga tushirish\n` +
-          `/chats - Saqlangan chatlar ro'yxati va 1 haftalik chatni yuklab olish (PDF)\n` +
           `/stats - Statistika\n` +
           `/settings - Sozlamalar (bildirishnomalarni o'chirish/yoqish)\n` +
-          `/search &lt;so'z&gt; - Xabarlarni izlash\n` +
-          `/export - Ma'lumotlarni yuklab olish\n`;
+          `/search &lt;so'z&gt; - Xabarlarni izlash\n`;
 
         if (isPrem) {
           text +=
+            `💬 /chats - Chatlar tarixi va 1 haftalik PDF (Premium)\n` +
+            `📂 /export - Ma'lumotlarni yuklab olish (Premium)\n` +
             `⭐ /saved - Saqlangan xabarlar (Premium)\n` +
             `⏰ /eslatma &lt;vaqt&gt; &lt;matn&gt; - Eslatma qo'shish (Premium)\n` +
             `⏰ /reminders - Eslatmalar ro'yxati (Premium)\n`;
@@ -335,13 +333,17 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
       }
     });
 
-    // ==================== 💬 CHAT HISTORY & EXPORT ====================
+    // ==================== 💬 CHAT HISTORY & EXPORT (PREMIUM) ====================
     bot.hears(['💬 Chatlar Tarixi (PDF)', '💬 Chatlar Tarixi', 'Chatlar Tarixi'], async (ctx) => {
-      await this.showUserChats(ctx, 1);
+      await this.executePremiumFeature(ctx, 'Chatlar Tarixi (PDF)', async () => {
+        await this.showUserChats(ctx, 1);
+      });
     });
 
     bot.command(['chats', 'chatlar', 'history'], async (ctx) => {
-      await this.showUserChats(ctx, 1);
+      await this.executePremiumFeature(ctx, 'Chatlar Tarixi (PDF)', async () => {
+        await this.showUserChats(ctx, 1);
+      });
     });
 
     // ==================== ⭐ SAVED ITEMS ====================
@@ -542,6 +544,10 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
 
         // Chatlar ro'yxati sahifalash
         if (data.startsWith('chats_page_')) {
+          if (!this.premiumService.isPremiumActive(user)) {
+            await ctx.answerCallbackQuery({ text: '⭐ Bu funksiya faqat Premium foydalanuvchilar uchun.', show_alert: true });
+            return;
+          }
           const page = parseInt(data.replace('chats_page_', ''), 10);
           await ctx.answerCallbackQuery();
           await this.showUserChats(ctx, page, true);
@@ -550,6 +556,10 @@ export class BotService implements OnApplicationBootstrap, OnApplicationShutdown
 
         // 1 haftalik chatni PDF qilib yuklab olish
         if (data.startsWith('dl_chat_')) {
+          if (!this.premiumService.isPremiumActive(user)) {
+            await ctx.answerCallbackQuery({ text: '⭐ Bu funksiya faqat Premium foydalanuvchilar uchun.', show_alert: true });
+            return;
+          }
           const targetChatId = Number(data.replace('dl_chat_', ''));
           await ctx.answerCallbackQuery('PDF tayyorlanmoqda, iltimos kuting...');
           await this.handleDownloadChatPdf(ctx, targetChatId);
