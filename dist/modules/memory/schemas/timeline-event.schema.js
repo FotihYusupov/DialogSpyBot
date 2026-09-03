@@ -39,6 +39,10 @@ __decorate([
     (0, mongoose_1.Prop)({ type: String }),
     __metadata("design:type", Object)
 ], TimelineEvent.prototype, "sourceMessageId", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: String }),
+    __metadata("design:type", String)
+], TimelineEvent.prototype, "sourceText", void 0);
 exports.TimelineEvent = TimelineEvent = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true })
 ], TimelineEvent);

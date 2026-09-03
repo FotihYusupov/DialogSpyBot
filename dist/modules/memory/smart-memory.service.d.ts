@@ -3,6 +3,7 @@ import { ContactProfile } from './schemas/contact-profile.schema';
 import { KnowledgeFact } from './schemas/knowledge-fact.schema';
 import { TimelineEvent } from './schemas/timeline-event.schema';
 import { InterestScore } from './schemas/interest-score.schema';
+import { BusinessMessage } from '../messages/schemas/message.schema';
 import { UsersService } from '../users/users.service';
 import { PremiumService } from '../premium/premium.service';
 import { RuleEngineService } from './services/rule-engine.service';
@@ -23,12 +24,13 @@ export declare class SmartMemoryService {
     private readonly factModel;
     private readonly timelineModel;
     private readonly interestModel;
+    private readonly messageModel;
     private readonly usersService;
     private readonly premiumService;
     private readonly ruleEngine;
     private readonly aiExtractor;
     private readonly logger;
-    constructor(profileModel: Model<ContactProfile>, factModel: Model<KnowledgeFact>, timelineModel: Model<TimelineEvent>, interestModel: Model<InterestScore>, usersService: UsersService, premiumService: PremiumService, ruleEngine: RuleEngineService, aiExtractor: AIExtractorService);
+    constructor(profileModel: Model<ContactProfile>, factModel: Model<KnowledgeFact>, timelineModel: Model<TimelineEvent>, interestModel: Model<InterestScore>, messageModel: Model<BusinessMessage>, usersService: UsersService, premiumService: PremiumService, ruleEngine: RuleEngineService, aiExtractor: AIExtractorService);
     processIncomingMessage(payload: IncomingMessagePayload): Promise<boolean>;
     private upsertFact;
     private upsertInterestScore;
@@ -130,13 +132,28 @@ export declare class SmartMemoryService {
         } & {
             id: string;
         })[];
-        interests: (import("mongoose").Document<unknown, {}, InterestScore, {}, import("mongoose").DefaultSchemaOptions> & InterestScore & Required<{
+        interests: {
+            score: number;
+            trend: "growing" | "stable" | "cooling";
+            ownerId: number;
+            contactId: string;
+            topic: string;
+            lastDiscussedAt: Date;
+            createdAt: Date;
+            updatedAt: Date;
             _id: import("mongoose").Types.ObjectId;
-        }> & {
+            $locals: Record<string, unknown>;
+            $op: "save" | "validate" | "remove" | null;
+            $where: Record<string, unknown>;
+            baseModelName?: string;
+            collection: import("mongoose").Collection;
+            db: import("mongoose").Connection;
+            errors?: import("mongoose").Error.ValidationError;
+            isNew: boolean;
+            schema: import("mongoose").Schema;
             __v: number;
-        } & {
-            id: string;
-        })[];
+        }[];
+        sourceMessages: any[];
     }>;
     deleteFact(factId: string): Promise<{
         success: boolean;

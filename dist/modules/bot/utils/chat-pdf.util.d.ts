@@ -6,6 +6,8 @@ export interface ChatPdfMessage {
     sender_username?: string;
     text?: string;
     media_type?: string;
+    media_file_id?: string;
+    media_file_path?: string;
     is_deleted?: boolean;
     is_edited?: boolean;
     edit_history?: Array<{

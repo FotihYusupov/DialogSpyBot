@@ -5,6 +5,7 @@ export declare class InterestScore extends Document {
     topic: string;
     score: number;
     lastDiscussedAt: Date;
+    trend: string;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -81,6 +82,15 @@ export declare const InterestScoreSchema: import("mongoose").Schema<InterestScor
         id: string;
     }>;
     lastDiscussedAt?: import("mongoose").SchemaDefinitionProperty<Date, InterestScore, Document<unknown, {}, InterestScore, {
+        id: string;
+    }, import("mongoose").DefaultSchemaOptions> & Omit<InterestScore & Required<{
+        _id: import("mongoose").Types.ObjectId;
+    }> & {
+        __v: number;
+    }, "id"> & {
+        id: string;
+    }>;
+    trend?: import("mongoose").SchemaDefinitionProperty<string, InterestScore, Document<unknown, {}, InterestScore, {
         id: string;
     }, import("mongoose").DefaultSchemaOptions> & Omit<InterestScore & Required<{
         _id: import("mongoose").Types.ObjectId;

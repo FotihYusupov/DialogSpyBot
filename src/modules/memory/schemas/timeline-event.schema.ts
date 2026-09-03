@@ -21,6 +21,9 @@ export class TimelineEvent extends Document {
   @Prop({ type: String })
   sourceMessageId?: string | number;
 
+  @Prop({ type: String })
+  sourceText?: string;
+
   createdAt: Date;
   updatedAt: Date;
 }

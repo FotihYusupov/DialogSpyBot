@@ -21,16 +21,18 @@ const contact_profile_schema_1 = require("./schemas/contact-profile.schema");
 const knowledge_fact_schema_1 = require("./schemas/knowledge-fact.schema");
 const timeline_event_schema_1 = require("./schemas/timeline-event.schema");
 const interest_score_schema_1 = require("./schemas/interest-score.schema");
+const message_schema_1 = require("../messages/schemas/message.schema");
 const users_service_1 = require("../users/users.service");
 const premium_service_1 = require("../premium/premium.service");
 const rule_engine_service_1 = require("./services/rule-engine.service");
 const ai_extractor_service_1 = require("./services/ai-extractor.service");
 let SmartMemoryService = SmartMemoryService_1 = class SmartMemoryService {
-    constructor(profileModel, factModel, timelineModel, interestModel, usersService, premiumService, ruleEngine, aiExtractor) {
+    constructor(profileModel, factModel, timelineModel, interestModel, messageModel, usersService, premiumService, ruleEngine, aiExtractor) {
         this.profileModel = profileModel;
         this.factModel = factModel;
         this.timelineModel = timelineModel;
         this.interestModel = interestModel;
+        this.messageModel = messageModel;
         this.usersService = usersService;
         this.premiumService = premiumService;
         this.ruleEngine = ruleEngine;
@@ -84,15 +86,15 @@ let SmartMemoryService = SmartMemoryService_1 = class SmartMemoryService {
         }
         for (const item of allExtracted) {
             if (item.type === 'milestone') {
-                await this.upsertTimelineEvent(ownerId, contactId, item.value, item.category || 'milestone', messageId);
+                await this.upsertTimelineEvent(ownerId, contactId, item.value, item.category || 'milestone', messageId, text);
                 continue;
             }
-            await this.upsertFact(ownerId, contactId, chatId, item.type, item.value, item.confidence, messageId, profile);
+            await this.upsertFact(ownerId, contactId, chatId, item.type, item.value, item.confidence, messageId, profile, text);
         }
         await this.updateProfileSummary(profile);
         return true;
     }
-    async upsertFact(ownerId, contactId, chatId, type, value, confidence, sourceMessageId, profile) {
+    async upsertFact(ownerId, contactId, chatId, type, value, confidence, sourceMessageId, profile, sourceText) {
         const cleanValue = value.trim();
         if (!cleanValue)
             return;
@@ -106,6 +108,8 @@ let SmartMemoryService = SmartMemoryService_1 = class SmartMemoryService {
             existing.confidence = Math.min(1.0, Number((existing.confidence + 0.1).toFixed(2)));
             existing.updatedAt = new Date();
             existing.sourceMessageId = sourceMessageId;
+            if (sourceText)
+                existing.sourceText = sourceText;
             await existing.save();
         }
         else {
@@ -117,6 +121,7 @@ let SmartMemoryService = SmartMemoryService_1 = class SmartMemoryService {
                 value: cleanValue,
                 confidence,
                 sourceMessageId,
+                sourceText: sourceText || '',
             });
         }
         this.addUniqueToProfileArray(profile, type, cleanValue);
@@ -125,9 +130,22 @@ let SmartMemoryService = SmartMemoryService_1 = class SmartMemoryService {
         }
     }
     async upsertInterestScore(ownerId, contactId, topic) {
-        const existing = await this.interestModel.findOne({ ownerId, contactId, topic: { $regex: `^${this.escapeRegex(topic)}$`, $options: 'i' } }).exec();
+        const existing = await this.interestModel.findOne({
+            ownerId,
+            contactId,
+            topic: { $regex: `^${this.escapeRegex(topic)}$`, $options: 'i' }
+        }).exec();
         if (existing) {
-            existing.score = Number((existing.score + 0.5).toFixed(2));
+            const daysPassed = (Date.now() - new Date(existing.lastDiscussedAt).getTime()) / (1000 * 60 * 60 * 24);
+            let baseScore = existing.score;
+            if (daysPassed > 30) {
+                baseScore = Math.max(0.5, baseScore * 0.7);
+            }
+            else if (daysPassed > 14) {
+                baseScore = Math.max(0.7, baseScore * 0.85);
+            }
+            existing.score = Number((baseScore + 0.5).toFixed(2));
+            existing.trend = 'growing';
             existing.lastDiscussedAt = new Date();
             await existing.save();
         }
@@ -137,12 +155,17 @@ let SmartMemoryService = SmartMemoryService_1 = class SmartMemoryService {
                 contactId,
                 topic,
                 score: 1.0,
+                trend: 'growing',
                 lastDiscussedAt: new Date(),
             });
         }
     }
-    async upsertTimelineEvent(ownerId, contactId, title, category, sourceMessageId) {
-        const existing = await this.timelineModel.findOne({ ownerId, contactId, title: { $regex: `^${this.escapeRegex(title)}$`, $options: 'i' } }).exec();
+    async upsertTimelineEvent(ownerId, contactId, title, category, sourceMessageId, sourceText) {
+        const existing = await this.timelineModel.findOne({
+            ownerId,
+            contactId,
+            title: { $regex: `^${this.escapeRegex(title)}$`, $options: 'i' }
+        }).exec();
         if (!existing) {
             await this.timelineModel.create({
                 ownerId,
@@ -151,7 +174,12 @@ let SmartMemoryService = SmartMemoryService_1 = class SmartMemoryService {
                 category,
                 eventDate: new Date(),
                 sourceMessageId,
+                sourceText: sourceText || '',
             });
+        }
+        else if (sourceText && !existing.sourceText) {
+            existing.sourceText = sourceText;
+            await existing.save();
         }
     }
     addUniqueToProfileArray(profile, type, value) {
@@ -309,16 +337,83 @@ let SmartMemoryService = SmartMemoryService_1 = class SmartMemoryService {
         if (!profile) {
             throw new common_1.NotFoundException(`Contact memory profile for ID ${contactId} not found`);
         }
-        const [facts, timeline, interests] = await Promise.all([
+        const [facts, timeline, rawInterests] = await Promise.all([
             this.factModel.find({ ownerId: profile.ownerId, contactId }).sort({ confidence: -1, updatedAt: -1 }).exec(),
             this.timelineModel.find({ ownerId: profile.ownerId, contactId }).sort({ eventDate: -1 }).exec(),
             this.interestModel.find({ ownerId: profile.ownerId, contactId }).sort({ score: -1 }).exec(),
         ]);
+        const interests = rawInterests.map((item) => {
+            const obj = item.toObject();
+            const daysPassed = (Date.now() - new Date(obj.lastDiscussedAt).getTime()) / (1000 * 60 * 60 * 24);
+            let decayedScore = obj.score;
+            let trend = 'growing';
+            if (daysPassed > 30) {
+                decayedScore = Math.max(0.3, Number((obj.score * Math.exp(-0.04 * (daysPassed - 30))).toFixed(1)));
+                trend = 'cooling';
+            }
+            else if (daysPassed > 14) {
+                decayedScore = Math.max(0.5, Number((obj.score * Math.exp(-0.02 * (daysPassed - 14))).toFixed(1)));
+                trend = 'cooling';
+            }
+            else if (daysPassed > 3) {
+                trend = 'stable';
+                decayedScore = Number((obj.score * 0.95).toFixed(1));
+            }
+            return {
+                ...obj,
+                score: decayedScore,
+                trend,
+            };
+        });
+        const contactTgId = profile.telegramId || Number(profile.contactId);
+        const messageQuery = {
+            owner_id: profile.ownerId,
+            $or: [
+                { sender_id: contactTgId },
+                { chat_id: profile.chatId }
+            ],
+            text: { $exists: true, $ne: '' }
+        };
+        const rawMessages = await this.messageModel
+            .find(messageQuery)
+            .sort({ date: -1 })
+            .limit(15)
+            .lean()
+            .exec();
+        const sourceMessages = rawMessages.map((msg) => ({
+            messageId: msg.message_id,
+            text: msg.text,
+            date: msg.date || msg.createdAt,
+            senderName: msg.sender_first_name
+                ? `${msg.sender_first_name}${msg.sender_last_name ? ' ' + msg.sender_last_name : ''}`
+                : profile.firstName || 'User',
+            isDeleted: !!msg.is_deleted,
+            isEdited: !!msg.is_edited,
+            mediaType: msg.media_type || null,
+        }));
+        if (sourceMessages.length === 0) {
+            const seenTexts = new Set();
+            for (const f of facts) {
+                if (f.sourceText && !seenTexts.has(f.sourceText)) {
+                    seenTexts.add(f.sourceText);
+                    sourceMessages.push({
+                        messageId: f.sourceMessageId || f._id,
+                        text: f.sourceText,
+                        date: f.updatedAt || f.createdAt,
+                        senderName: profile.firstName || 'User',
+                        isDeleted: false,
+                        isEdited: false,
+                        mediaType: null,
+                    });
+                }
+            }
+        }
         return {
             profile,
             facts,
             timeline,
             interests,
+            sourceMessages,
         };
     }
     async deleteFact(factId) {
@@ -414,7 +509,9 @@ exports.SmartMemoryService = SmartMemoryService = SmartMemoryService_1 = __decor
     __param(1, (0, mongoose_1.InjectModel)(knowledge_fact_schema_1.KnowledgeFact.name)),
     __param(2, (0, mongoose_1.InjectModel)(timeline_event_schema_1.TimelineEvent.name)),
     __param(3, (0, mongoose_1.InjectModel)(interest_score_schema_1.InterestScore.name)),
+    __param(4, (0, mongoose_1.InjectModel)(message_schema_1.BusinessMessage.name)),
     __metadata("design:paramtypes", [mongoose_2.Model,
+        mongoose_2.Model,
         mongoose_2.Model,
         mongoose_2.Model,
         mongoose_2.Model,

@@ -6,6 +6,7 @@ export interface SemanticFactResult {
 }
 export declare class AIExtractorService {
     private readonly logger;
+    private readonly STOP_WORDS;
     extractSemanticFacts(text?: string): Promise<SemanticFactResult[]>;
     private cleanValue;
 }

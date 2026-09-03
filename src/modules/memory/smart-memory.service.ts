@@ -5,6 +5,7 @@ import { ContactProfile } from './schemas/contact-profile.schema';
 import { KnowledgeFact } from './schemas/knowledge-fact.schema';
 import { TimelineEvent } from './schemas/timeline-event.schema';
 import { InterestScore } from './schemas/interest-score.schema';
+import { BusinessMessage } from '../messages/schemas/message.schema';
 import { UsersService } from '../users/users.service';
 import { PremiumService } from '../premium/premium.service';
 import { RuleEngineService } from './services/rule-engine.service';
@@ -31,6 +32,7 @@ export class SmartMemoryService {
     @InjectModel(KnowledgeFact.name) private readonly factModel: Model<KnowledgeFact>,
     @InjectModel(TimelineEvent.name) private readonly timelineModel: Model<TimelineEvent>,
     @InjectModel(InterestScore.name) private readonly interestModel: Model<InterestScore>,
+    @InjectModel(BusinessMessage.name) private readonly messageModel: Model<BusinessMessage>,
     private readonly usersService: UsersService,
     private readonly premiumService: PremiumService,
     private readonly ruleEngine: RuleEngineService,
@@ -98,11 +100,11 @@ export class SmartMemoryService {
     for (const item of allExtracted) {
       if (item.type === 'milestone') {
         // Handle Timeline Events
-        await this.upsertTimelineEvent(ownerId, contactId, item.value, item.category || 'milestone', messageId);
+        await this.upsertTimelineEvent(ownerId, contactId, item.value, item.category || 'milestone', messageId, text);
         continue;
       }
 
-      await this.upsertFact(ownerId, contactId, chatId, item.type, item.value, item.confidence, messageId, profile);
+      await this.upsertFact(ownerId, contactId, chatId, item.type, item.value, item.confidence, messageId, profile, text);
     }
 
     // 5. Auto-rebuild Dynamic Profile Summary
@@ -119,7 +121,8 @@ export class SmartMemoryService {
     value: string,
     confidence: number,
     sourceMessageId: number | string,
-    profile: ContactProfile
+    profile: ContactProfile,
+    sourceText?: string
   ) {
     const cleanValue = value.trim();
     if (!cleanValue) return;
@@ -137,6 +140,7 @@ export class SmartMemoryService {
       existing.confidence = Math.min(1.0, Number((existing.confidence + 0.1).toFixed(2)));
       existing.updatedAt = new Date();
       existing.sourceMessageId = sourceMessageId;
+      if (sourceText) existing.sourceText = sourceText;
       await existing.save();
     } else {
       // Create new fact
@@ -148,6 +152,7 @@ export class SmartMemoryService {
         value: cleanValue,
         confidence,
         sourceMessageId,
+        sourceText: sourceText || '',
       });
     }
 
@@ -161,9 +166,25 @@ export class SmartMemoryService {
   }
 
   private async upsertInterestScore(ownerId: number, contactId: string, topic: string) {
-    const existing = await this.interestModel.findOne({ ownerId, contactId, topic: { $regex: `^${this.escapeRegex(topic)}$`, $options: 'i' } }).exec();
+    const existing = await this.interestModel.findOne({
+      ownerId,
+      contactId,
+      topic: { $regex: `^${this.escapeRegex(topic)}$`, $options: 'i' }
+    }).exec();
+
     if (existing) {
-      existing.score = Number((existing.score + 0.5).toFixed(2));
+      const daysPassed = (Date.now() - new Date(existing.lastDiscussedAt).getTime()) / (1000 * 60 * 60 * 24);
+      let baseScore = existing.score;
+
+      // If topic has not been discussed in over 14 days, decay previous score first
+      if (daysPassed > 30) {
+        baseScore = Math.max(0.5, baseScore * 0.7);
+      } else if (daysPassed > 14) {
+        baseScore = Math.max(0.7, baseScore * 0.85);
+      }
+
+      existing.score = Number((baseScore + 0.5).toFixed(2));
+      existing.trend = 'growing';
       existing.lastDiscussedAt = new Date();
       await existing.save();
     } else {
@@ -172,13 +193,26 @@ export class SmartMemoryService {
         contactId,
         topic,
         score: 1.0,
+        trend: 'growing',
         lastDiscussedAt: new Date(),
       });
     }
   }
 
-  private async upsertTimelineEvent(ownerId: number, contactId: string, title: string, category: string, sourceMessageId: number | string) {
-    const existing = await this.timelineModel.findOne({ ownerId, contactId, title: { $regex: `^${this.escapeRegex(title)}$`, $options: 'i' } }).exec();
+  private async upsertTimelineEvent(
+    ownerId: number,
+    contactId: string,
+    title: string,
+    category: string,
+    sourceMessageId: number | string,
+    sourceText?: string
+  ) {
+    const existing = await this.timelineModel.findOne({
+      ownerId,
+      contactId,
+      title: { $regex: `^${this.escapeRegex(title)}$`, $options: 'i' }
+    }).exec();
+
     if (!existing) {
       await this.timelineModel.create({
         ownerId,
@@ -187,7 +221,11 @@ export class SmartMemoryService {
         category,
         eventDate: new Date(),
         sourceMessageId,
+        sourceText: sourceText || '',
       });
+    } else if (sourceText && !existing.sourceText) {
+      existing.sourceText = sourceText;
+      await existing.save();
     }
   }
 
@@ -361,17 +399,93 @@ export class SmartMemoryService {
       throw new NotFoundException(`Contact memory profile for ID ${contactId} not found`);
     }
 
-    const [facts, timeline, interests] = await Promise.all([
+    const [facts, timeline, rawInterests] = await Promise.all([
       this.factModel.find({ ownerId: profile.ownerId, contactId }).sort({ confidence: -1, updatedAt: -1 }).exec(),
       this.timelineModel.find({ ownerId: profile.ownerId, contactId }).sort({ eventDate: -1 }).exec(),
       this.interestModel.find({ ownerId: profile.ownerId, contactId }).sort({ score: -1 }).exec(),
     ]);
+
+    // Calculate dynamic time decay and trend for each interest topic
+    const interests = rawInterests.map((item) => {
+      const obj = item.toObject();
+      const daysPassed = (Date.now() - new Date(obj.lastDiscussedAt).getTime()) / (1000 * 60 * 60 * 24);
+      let decayedScore = obj.score;
+      let trend: 'growing' | 'stable' | 'cooling' = 'growing';
+
+      if (daysPassed > 30) {
+        decayedScore = Math.max(0.3, Number((obj.score * Math.exp(-0.04 * (daysPassed - 30))).toFixed(1)));
+        trend = 'cooling';
+      } else if (daysPassed > 14) {
+        decayedScore = Math.max(0.5, Number((obj.score * Math.exp(-0.02 * (daysPassed - 14))).toFixed(1)));
+        trend = 'cooling';
+      } else if (daysPassed > 3) {
+        trend = 'stable';
+        decayedScore = Number((obj.score * 0.95).toFixed(1));
+      }
+
+      return {
+        ...obj,
+        score: decayedScore,
+        trend,
+      };
+    });
+
+    // Retrieve real source messages from BusinessMessage
+    const contactTgId = profile.telegramId || Number(profile.contactId);
+    const messageQuery: any = {
+      owner_id: profile.ownerId,
+      $or: [
+        { sender_id: contactTgId },
+        { chat_id: profile.chatId }
+      ],
+      text: { $exists: true, $ne: '' }
+    };
+
+    const rawMessages = await this.messageModel
+      .find(messageQuery)
+      .sort({ date: -1 })
+      .limit(15)
+      .lean()
+      .exec();
+
+    // Format real source messages
+    const sourceMessages: any[] = rawMessages.map((msg: any) => ({
+      messageId: msg.message_id,
+      text: msg.text,
+      date: msg.date || msg.createdAt,
+      senderName: msg.sender_first_name 
+        ? `${msg.sender_first_name}${msg.sender_last_name ? ' ' + msg.sender_last_name : ''}`
+        : profile.firstName || 'User',
+      isDeleted: !!msg.is_deleted,
+      isEdited: !!msg.is_edited,
+      mediaType: msg.media_type || null,
+    }));
+
+    // Fallback: If no business messages matched directly, gather sourceTexts from facts & timeline
+    if (sourceMessages.length === 0) {
+      const seenTexts = new Set<string>();
+      for (const f of facts) {
+        if (f.sourceText && !seenTexts.has(f.sourceText)) {
+          seenTexts.add(f.sourceText);
+          sourceMessages.push({
+            messageId: f.sourceMessageId || f._id,
+            text: f.sourceText,
+            date: f.updatedAt || f.createdAt,
+            senderName: profile.firstName || 'User',
+            isDeleted: false,
+            isEdited: false,
+            mediaType: null,
+          });
+        }
+      }
+    }
 
     return {
       profile,
       facts,
       timeline,
       interests,
+      sourceMessages,
     };
   }
 

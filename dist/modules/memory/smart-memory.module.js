@@ -13,6 +13,7 @@ const contact_profile_schema_1 = require("./schemas/contact-profile.schema");
 const knowledge_fact_schema_1 = require("./schemas/knowledge-fact.schema");
 const timeline_event_schema_1 = require("./schemas/timeline-event.schema");
 const interest_score_schema_1 = require("./schemas/interest-score.schema");
+const message_schema_1 = require("../messages/schemas/message.schema");
 const rule_engine_service_1 = require("./services/rule-engine.service");
 const ai_extractor_service_1 = require("./services/ai-extractor.service");
 const smart_memory_service_1 = require("./smart-memory.service");
@@ -29,6 +30,7 @@ exports.SmartMemoryModule = SmartMemoryModule = __decorate([
                 { name: knowledge_fact_schema_1.KnowledgeFact.name, schema: knowledge_fact_schema_1.KnowledgeFactSchema },
                 { name: timeline_event_schema_1.TimelineEvent.name, schema: timeline_event_schema_1.TimelineEventSchema },
                 { name: interest_score_schema_1.InterestScore.name, schema: interest_score_schema_1.InterestScoreSchema },
+                { name: message_schema_1.BusinessMessage.name, schema: message_schema_1.BusinessMessageSchema },
             ]),
         ],
         controllers: [memory_controller_1.MemoryController],

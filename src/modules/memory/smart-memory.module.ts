@@ -4,6 +4,7 @@ import { ContactProfile, ContactProfileSchema } from './schemas/contact-profile.
 import { KnowledgeFact, KnowledgeFactSchema } from './schemas/knowledge-fact.schema';
 import { TimelineEvent, TimelineEventSchema } from './schemas/timeline-event.schema';
 import { InterestScore, InterestScoreSchema } from './schemas/interest-score.schema';
+import { BusinessMessage, BusinessMessageSchema } from '../messages/schemas/message.schema';
 import { RuleEngineService } from './services/rule-engine.service';
 import { AIExtractorService } from './services/ai-extractor.service';
 import { SmartMemoryService } from './smart-memory.service';
@@ -17,6 +18,7 @@ import { MemoryController } from './memory.controller';
       { name: KnowledgeFact.name, schema: KnowledgeFactSchema },
       { name: TimelineEvent.name, schema: TimelineEventSchema },
       { name: InterestScore.name, schema: InterestScoreSchema },
+      { name: BusinessMessage.name, schema: BusinessMessageSchema },
     ]),
   ],
   controllers: [MemoryController],

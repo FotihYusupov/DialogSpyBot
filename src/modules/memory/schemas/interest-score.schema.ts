@@ -18,6 +18,9 @@ export class InterestScore extends Document {
   @Prop({ type: Date, default: Date.now })
   lastDiscussedAt: Date;
 
+  @Prop({ type: String, default: 'growing' })
+  trend: string; // 'growing' | 'stable' | 'cooling'
+
   createdAt: Date;
   updatedAt: Date;
 }

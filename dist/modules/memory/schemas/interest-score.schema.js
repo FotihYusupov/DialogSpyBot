@@ -35,6 +35,10 @@ __decorate([
     (0, mongoose_1.Prop)({ type: Date, default: Date.now }),
     __metadata("design:type", Date)
 ], InterestScore.prototype, "lastDiscussedAt", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: String, default: 'growing' }),
+    __metadata("design:type", String)
+], InterestScore.prototype, "trend", void 0);
 exports.InterestScore = InterestScore = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true })
 ], InterestScore);

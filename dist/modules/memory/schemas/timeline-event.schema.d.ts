@@ -6,6 +6,7 @@ export declare class TimelineEvent extends Document {
     category: string;
     eventDate: Date;
     sourceMessageId?: string | number;
+    sourceText?: string;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -64,6 +65,15 @@ export declare const TimelineEventSchema: import("mongoose").Schema<TimelineEven
         id: string;
     }>;
     sourceMessageId?: import("mongoose").SchemaDefinitionProperty<string | number, TimelineEvent, Document<unknown, {}, TimelineEvent, {
+        id: string;
+    }, import("mongoose").DefaultSchemaOptions> & Omit<TimelineEvent & Required<{
+        _id: import("mongoose").Types.ObjectId;
+    }> & {
+        __v: number;
+    }, "id"> & {
+        id: string;
+    }>;
+    sourceText?: import("mongoose").SchemaDefinitionProperty<string, TimelineEvent, Document<unknown, {}, TimelineEvent, {
         id: string;
     }, import("mongoose").DefaultSchemaOptions> & Omit<TimelineEvent & Required<{
         _id: import("mongoose").Types.ObjectId;

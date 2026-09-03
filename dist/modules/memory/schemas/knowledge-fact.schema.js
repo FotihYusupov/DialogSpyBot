@@ -43,6 +43,10 @@ __decorate([
     (0, mongoose_1.Prop)({ type: String }),
     __metadata("design:type", Object)
 ], KnowledgeFact.prototype, "sourceMessageId", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: String }),
+    __metadata("design:type", String)
+], KnowledgeFact.prototype, "sourceText", void 0);
 exports.KnowledgeFact = KnowledgeFact = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true })
 ], KnowledgeFact);

@@ -133,13 +133,28 @@ export declare class MemoryController {
         } & {
             id: string;
         })[];
-        interests: (import("mongoose").Document<unknown, {}, import("./schemas/interest-score.schema").InterestScore, {}, import("mongoose").DefaultSchemaOptions> & import("./schemas/interest-score.schema").InterestScore & Required<{
+        interests: {
+            score: number;
+            trend: "growing" | "stable" | "cooling";
+            ownerId: number;
+            contactId: string;
+            topic: string;
+            lastDiscussedAt: Date;
+            createdAt: Date;
+            updatedAt: Date;
             _id: import("mongoose").Types.ObjectId;
-        }> & {
+            $locals: Record<string, unknown>;
+            $op: "save" | "validate" | "remove" | null;
+            $where: Record<string, unknown>;
+            baseModelName?: string;
+            collection: import("mongoose").Collection;
+            db: import("mongoose").Connection;
+            errors?: import("mongoose").Error.ValidationError;
+            isNew: boolean;
+            schema: import("mongoose").Schema;
             __v: number;
-        } & {
-            id: string;
-        })[];
+        }[];
+        sourceMessages: any[];
     }>;
     deleteFact(factId: string): Promise<{
         success: boolean;

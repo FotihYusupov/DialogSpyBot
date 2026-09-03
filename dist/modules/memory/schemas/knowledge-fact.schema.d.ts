@@ -7,6 +7,7 @@ export declare class KnowledgeFact extends Document {
     value: string;
     confidence: number;
     sourceMessageId?: string | number;
+    sourceText?: string;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -101,6 +102,15 @@ export declare const KnowledgeFactSchema: import("mongoose").Schema<KnowledgeFac
         id: string;
     }>;
     sourceMessageId?: import("mongoose").SchemaDefinitionProperty<string | number, KnowledgeFact, Document<unknown, {}, KnowledgeFact, {
+        id: string;
+    }, import("mongoose").DefaultSchemaOptions> & Omit<KnowledgeFact & Required<{
+        _id: import("mongoose").Types.ObjectId;
+    }> & {
+        __v: number;
+    }, "id"> & {
+        id: string;
+    }>;
+    sourceText?: import("mongoose").SchemaDefinitionProperty<string, KnowledgeFact, Document<unknown, {}, KnowledgeFact, {
         id: string;
     }, import("mongoose").DefaultSchemaOptions> & Omit<KnowledgeFact & Required<{
         _id: import("mongoose").Types.ObjectId;
