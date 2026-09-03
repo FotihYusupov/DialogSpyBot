@@ -1,10 +1,43 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
 var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
     var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
     if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
     else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
@@ -21,6 +54,8 @@ const users_service_1 = require("./users.service");
 const bot_service_1 = require("../bot/bot.service");
 const messages_service_1 = require("../messages/messages.service");
 const premium_service_1 = require("../premium/premium.service");
+const fs = __importStar(require("fs"));
+const chat_pdf_util_1 = require("../bot/utils/chat-pdf.util");
 let UsersController = class UsersController {
     constructor(usersService, botService, messagesService, premiumService) {
         this.usersService = usersService;
@@ -120,10 +155,82 @@ let UsersController = class UsersController {
         const limitNum = Math.max(1, Math.min(200, parseInt(limit || '100', 10) || 100));
         return this.messagesService.getChatMessagesPaginated(Number(chatId), Number(targetChatId), pageNum, limitNum);
     }
-    async simulateTest(chatId) {
+    async exportChatPdf(chatId, targetChatId, res) {
+        const ownerId = Number(chatId);
+        const targetId = Number(targetChatId);
+        const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        let messages = await this.messagesService.getChatMessagesTimeframe(ownerId, targetId, oneWeekAgo);
+        let isFallback = false;
+        if (messages.length === 0) {
+            messages = await this.messagesService.getChatMessages(ownerId, targetId);
+            isFallback = true;
+        }
+        const chats = await this.messagesService.getUserChats(ownerId);
+        const chatInfo = chats.find((c) => c._id === targetId);
+        const chatTitle = chatInfo?.chat_title || `Chat_${targetId}`;
+        const pdfPath = await (0, chat_pdf_util_1.generateChatPdf)({
+            ownerId,
+            chatId: targetId,
+            chatTitle,
+            messages,
+            fromDate: isFallback ? undefined : oneWeekAgo,
+            toDate: new Date(),
+        });
+        const fileName = `${chatTitle.replace(/[^a-zA-Z0-9_\-]/g, '_') || 'chat'}_1haftalik.pdf`;
+        res.download(pdfPath, fileName, (err) => {
+            if (fs.existsSync(pdfPath)) {
+                fs.unlinkSync(pdfPath);
+            }
+        });
+    }
+    async sendMessage(chatId, body) {
         const userChatId = Number(chatId);
+        if (isNaN(userChatId)) {
+            throw new common_1.BadRequestException('Invalid chatId');
+        }
+        const messageText = body?.message || body?.text;
+        if (!messageText || !messageText.trim()) {
+            throw new common_1.BadRequestException('Message content cannot be empty');
+        }
         const bot = this.botService.getBotInstance();
-        await bot.api.sendMessage(userChatId, `🔔 <b>Test Xabarnomasi</b>\n\nTrackMyChatBot tizimidagi sozlamalaringiz to'g'ri ishlayotganini tekshirish uchun ushbu xabar yuborildi.\n\n@TrackMyChatBot`, { parse_mode: 'HTML' });
+        const parseMode = body?.parse_mode !== undefined ? body.parse_mode : 'HTML';
+        try {
+            if (parseMode) {
+                await bot.api.sendMessage(userChatId, messageText.trim(), { parse_mode: parseMode });
+            }
+            else {
+                await bot.api.sendMessage(userChatId, messageText.trim());
+            }
+        }
+        catch (err) {
+            try {
+                await bot.api.sendMessage(userChatId, messageText.trim());
+            }
+            catch (fallbackErr) {
+                throw new common_1.BadRequestException(`Failed to send message: ${fallbackErr.message || err.message}`);
+            }
+        }
+        return { success: true, message: 'Custom message delivered successfully' };
+    }
+    async simulateTest(chatId, body) {
+        const userChatId = Number(chatId);
+        if (isNaN(userChatId)) {
+            throw new common_1.BadRequestException('Invalid chatId');
+        }
+        const messageText = body?.message || body?.text ||
+            `🔔 <b>Test Xabarnomasi</b>\n\nTrackMyChatBot tizimidagi sozlamalaringiz to'g'ri ishlayotganini tekshirish uchun ushbu xabar yuborildi.\n\n@TrackMyChatBot`;
+        const bot = this.botService.getBotInstance();
+        try {
+            await bot.api.sendMessage(userChatId, messageText.trim(), { parse_mode: 'HTML' });
+        }
+        catch (err) {
+            try {
+                await bot.api.sendMessage(userChatId, messageText.trim());
+            }
+            catch (fallbackErr) {
+                throw new common_1.BadRequestException(`Failed to send message: ${fallbackErr.message || err.message}`);
+            }
+        }
         return { success: true, message: 'Test message delivered successfully' };
     }
 };
@@ -197,10 +304,28 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "getChatMessages", null);
 __decorate([
+    (0, common_1.Get)(':chatId/chats/:targetChatId/export-pdf'),
+    __param(0, (0, common_1.Param)('chatId')),
+    __param(1, (0, common_1.Param)('targetChatId')),
+    __param(2, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, Object]),
+    __metadata("design:returntype", Promise)
+], UsersController.prototype, "exportChatPdf", null);
+__decorate([
+    (0, common_1.Post)(':chatId/send-message'),
+    __param(0, (0, common_1.Param)('chatId')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], UsersController.prototype, "sendMessage", null);
+__decorate([
     (0, common_1.Post)(':chatId/simulate-test'),
     __param(0, (0, common_1.Param)('chatId')),
+    __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "simulateTest", null);
 exports.UsersController = UsersController = __decorate([

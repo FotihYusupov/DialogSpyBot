@@ -57,6 +57,7 @@ const saved_messages_service_1 = require("../saved/saved-messages.service");
 const reminders_service_1 = require("../reminders/reminders.service");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
+const chat_pdf_util_1 = require("./utils/chat-pdf.util");
 let BotService = BotService_1 = class BotService {
     constructor(configService, usersService, messagesService, logsService, premiumService, smartMemoryService, savedMessagesService, remindersService) {
         this.configService = configService;
@@ -214,13 +215,16 @@ let BotService = BotService_1 = class BotService {
     }
     buildMainMenuKeyboard(user) {
         const isPremium = this.premiumService.isPremiumActive(user);
-        if (!isPremium) {
-            return { remove_keyboard: true };
+        const keyboard = new grammy_1.Keyboard()
+            .text('💬 Chatlar Tarixi (PDF)')
+            .row();
+        if (isPremium) {
+            keyboard
+                .text('⭐ Saqlangan Xabarlar')
+                .text('⏰ Eslatmalar')
+                .row();
         }
-        return new grammy_1.Keyboard()
-            .text('⭐ Saqlangan Xabarlar')
-            .text('⏰ Eslatmalar')
-            .resized();
+        return keyboard.resized();
     }
     async executePremiumFeature(ctx, featureName, action) {
         try {
@@ -320,6 +324,7 @@ let BotService = BotService_1 = class BotService {
                 const isPrem = this.premiumService.isPremiumActive(user);
                 let text = `📖 <b>Yordam</b>\n\n` +
                     `/start - Botni ishga tushirish\n` +
+                    `/chats - Saqlangan chatlar ro'yxati va 1 haftalik chatni yuklab olish (PDF)\n` +
                     `/stats - Statistika\n` +
                     `/settings - Sozlamalar (bildirishnomalarni o'chirish/yoqish)\n` +
                     `/search &lt;so'z&gt; - Xabarlarni izlash\n` +
@@ -336,6 +341,12 @@ let BotService = BotService_1 = class BotService {
             catch (err) {
                 this.logger.error(`Help command error: ${err.message}`);
             }
+        });
+        bot.hears(['💬 Chatlar Tarixi (PDF)', '💬 Chatlar Tarixi', 'Chatlar Tarixi'], async (ctx) => {
+            await this.showUserChats(ctx, 1);
+        });
+        bot.command(['chats', 'chatlar', 'history'], async (ctx) => {
+            await this.showUserChats(ctx, 1);
         });
         bot.hears(['⭐ Saqlangan Xabarlar', '⭐ Saved Items'], async (ctx) => {
             await this.executePremiumFeature(ctx, 'Saqlangan Xabarlar', async () => {
@@ -498,6 +509,22 @@ let BotService = BotService_1 = class BotService {
                     });
                     await ctx.answerCallbackQuery('⭐ Saqlandi!');
                     await ctx.editMessageReplyMarkup({ reply_markup: new grammy_1.InlineKeyboard().text('✅ Saqlangan', 'noop') }).catch(() => { });
+                    return;
+                }
+                if (data === 'noop') {
+                    await ctx.answerCallbackQuery();
+                    return;
+                }
+                if (data.startsWith('chats_page_')) {
+                    const page = parseInt(data.replace('chats_page_', ''), 10);
+                    await ctx.answerCallbackQuery();
+                    await this.showUserChats(ctx, page, true);
+                    return;
+                }
+                if (data.startsWith('dl_chat_')) {
+                    const targetChatId = Number(data.replace('dl_chat_', ''));
+                    await ctx.answerCallbackQuery('PDF tayyorlanmoqda, iltimos kuting...');
+                    await this.handleDownloadChatPdf(ctx, targetChatId);
                     return;
                 }
                 await ctx.answerCallbackQuery();
@@ -898,6 +925,120 @@ let BotService = BotService_1 = class BotService {
         });
         text += `@TrackMyChatBot`;
         await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+    }
+    async showUserChats(ctx, page = 1, isEdit = false) {
+        try {
+            const ownerId = ctx.from?.id;
+            if (!ownerId)
+                return;
+            const chats = await this.messagesService.getUserChats(ownerId);
+            if (!chats || chats.length === 0) {
+                const emptyText = `💬 <b>Saqlangan chatlar topilmadi</b>\n\n` +
+                    `Bot hali sizning Telegram accountingizdan chat xabarlarini saqlab olmagan.\n` +
+                    `Telegram Business orqali bot ulanganligini tekshiring yoki yangi xabarlar kelgach qayta urinib ko'ring.\n\n` +
+                    `@TrackMyChatBot`;
+                if (isEdit) {
+                    await ctx.editMessageText(emptyText, { parse_mode: 'HTML' }).catch(() => { });
+                }
+                else {
+                    await ctx.reply(emptyText, { parse_mode: 'HTML' });
+                }
+                return;
+            }
+            const limit = 5;
+            const totalPages = Math.ceil(chats.length / limit);
+            const currentPage = Math.max(1, Math.min(page, totalPages));
+            const currentChats = chats.slice((currentPage - 1) * limit, currentPage * limit);
+            const keyboard = new grammy_1.InlineKeyboard();
+            for (const c of currentChats) {
+                const title = c.chat_title || (c.chat_type === 'private' ? `User ${c._id}` : `Chat ${c._id}`);
+                const truncated = title.length > 32 ? title.substring(0, 30) + '...' : title;
+                const icon = c.chat_type === 'private' ? '👤' : '👥';
+                keyboard.text(`${icon} ${truncated}`, `dl_chat_${c._id}`).row();
+            }
+            if (totalPages > 1) {
+                if (currentPage > 1) {
+                    keyboard.text('⬅️ Oldingi', `chats_page_${currentPage - 1}`);
+                }
+                keyboard.text(`📄 ${currentPage}/${totalPages}`, 'noop');
+                if (currentPage < totalPages) {
+                    keyboard.text('Keyingi ➡️', `chats_page_${currentPage + 1}`);
+                }
+                keyboard.row();
+            }
+            const text = `📁 <b>Saqlangan Chatlar Ro'yxati</b> (Jami: ${chats.length} ta)\n\n` +
+                `O'zingizga kerakli chatni tanlang. Bot o'sha odam/guruh bilan <b>so'nggi 1 haftalik to'liq yozishmalar tarixini</b> (shu jumladan o'chirilgan va tahrirlangan xabarlarni) <b>PDF hujjat</b> formatida yuklab beradi.\n\n` +
+                `💡 <i>Eslatma: Agar chat Telegram ilovangizda to'liq o'chirib yuborilgan bo'lsa ham, bot saqlagan barcha xabarlar PDF faylda to'liq aks etadi.</i>\n\n` +
+                `@TrackMyChatBot`;
+            if (isEdit) {
+                await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => { });
+            }
+            else {
+                await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+            }
+        }
+        catch (err) {
+            this.logger.error(`Error showing user chats: ${err.message}`);
+        }
+    }
+    async handleDownloadChatPdf(ctx, targetChatId) {
+        const ownerId = ctx.from?.id;
+        if (!ownerId)
+            return;
+        let statusMsg = null;
+        try {
+            statusMsg = await ctx.reply(`⏳ <b>Chat tarixi to'planmoqda va PDF tayyorlanmoqda...</b>\n\nIltimos, biroz kuting...`, { parse_mode: 'HTML' });
+            const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+            let messages = await this.messagesService.getChatMessagesTimeframe(ownerId, targetChatId, oneWeekAgo);
+            let isFallback = false;
+            if (messages.length === 0) {
+                messages = await this.messagesService.getChatMessages(ownerId, targetChatId);
+                isFallback = true;
+            }
+            if (messages.length === 0) {
+                if (statusMsg) {
+                    await ctx.api.editMessageText(ctx.chat.id, statusMsg.message_id, `❌ Ushbu chat bo'yicha saqlangan xabarlar topilmadi.\n\n@TrackMyChatBot`).catch(() => { });
+                }
+                return;
+            }
+            const chats = await this.messagesService.getUserChats(ownerId);
+            const foundChat = chats.find((c) => c._id === targetChatId);
+            const chatTitle = foundChat?.chat_title || `Chat_${targetChatId}`;
+            const pdfPath = await (0, chat_pdf_util_1.generateChatPdf)({
+                ownerId,
+                chatId: targetChatId,
+                chatTitle,
+                messages,
+                fromDate: isFallback ? undefined : oneWeekAgo,
+                toDate: new Date(),
+            });
+            const deletedCount = messages.filter((m) => m.is_deleted).length;
+            const editedCount = messages.filter((m) => m.is_edited).length;
+            const periodText = isFallback ? "Mavjud barcha yozishmalar" : "So'nggi 7 kun";
+            const cleanFileName = `${chatTitle.replace(/[^a-zA-Z0-9_\-]/g, '_') || 'chat'}_1haftalik.pdf`;
+            await ctx.replyWithDocument(new grammy_1.InputFile(pdfPath, cleanFileName), {
+                caption: `📄 <b>${this.escapeHTML(chatTitle)} — Chat Tarixi</b>\n\n` +
+                    `📅 <b>Davr:</b> ${periodText}\n` +
+                    `💬 <b>Jami xabarlar:</b> ${messages.length} ta\n` +
+                    `🗑 <b>O'chirilgan xabarlar:</b> ${deletedCount} ta\n` +
+                    `✏️ <b>Tahrirlangan xabarlar:</b> ${editedCount} ta\n\n` +
+                    `✅ <i>Chat to'liq PDF formatida tayyorlandi.</i>\n\n` +
+                    `@TrackMyChatBot`,
+                parse_mode: 'HTML',
+            });
+            if (statusMsg) {
+                await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => { });
+            }
+            if (fs.existsSync(pdfPath)) {
+                fs.unlinkSync(pdfPath);
+            }
+        }
+        catch (err) {
+            this.logger.error(`Failed to generate/send chat PDF: ${err.message}`);
+            if (statusMsg) {
+                await ctx.api.editMessageText(ctx.chat.id, statusMsg.message_id, `❌ PDF tayyorlashda xatolik yuz berdi: ${err.message || 'Noma\'lum xatolik'}`).catch(() => { });
+            }
+        }
     }
 };
 exports.BotService = BotService;

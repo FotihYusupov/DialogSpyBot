@@ -263,6 +263,26 @@ export class MessagesService implements OnModuleInit {
     .exec();
   }
 
+  async getChatMessagesTimeframe(
+    ownerId: number,
+    chatId: number,
+    fromDate?: Date
+  ): Promise<BusinessMessage[]> {
+    const filter: any = {
+      owner_id: ownerId,
+      chat_id: chatId,
+    };
+    if (fromDate) {
+      filter.$or = [
+        { date: { $gte: fromDate } },
+        { createdAt: { $gte: fromDate } },
+      ];
+    }
+    return this.msgModel.find(filter)
+      .sort({ date: 1 })
+      .exec();
+  }
+
   async getChatMessagesPaginated(
     ownerId: number,
     chatId: number,

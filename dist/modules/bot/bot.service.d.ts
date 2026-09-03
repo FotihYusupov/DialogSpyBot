@@ -34,4 +34,6 @@ export declare class BotService implements OnApplicationBootstrap, OnApplication
     private registerHandlers;
     private showSavedMessages;
     private showReminders;
+    private showUserChats;
+    private handleDownloadChatPdf;
 }

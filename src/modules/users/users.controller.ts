@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Query, Param, Res, UseGuards, Inject, forwardRef } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Query, Param, Res, UseGuards, Inject, forwardRef, BadRequestException } from '@nestjs/common';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -7,6 +7,8 @@ import { UsersService } from './users.service';
 import { BotService } from '../bot/bot.service';
 import { MessagesService } from '../messages/messages.service';
 import { PremiumService } from '../premium/premium.service';
+import * as fs from 'fs';
+import { generateChatPdf } from '../bot/utils/chat-pdf.util';
 
 @Controller('admin/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -158,17 +160,100 @@ export class UsersController {
     );
   }
 
-  @Post(':chatId/simulate-test')
-  async simulateTest(@Param('chatId') chatId: string) {
+  @Get(':chatId/chats/:targetChatId/export-pdf')
+  async exportChatPdf(
+    @Param('chatId') chatId: string,
+    @Param('targetChatId') targetChatId: string,
+    @Res() res: Response
+  ) {
+    const ownerId = Number(chatId);
+    const targetId = Number(targetChatId);
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    let messages = await this.messagesService.getChatMessagesTimeframe(ownerId, targetId, oneWeekAgo);
+    let isFallback = false;
+    if (messages.length === 0) {
+      messages = await this.messagesService.getChatMessages(ownerId, targetId);
+      isFallback = true;
+    }
+    const chats = await this.messagesService.getUserChats(ownerId);
+    const chatInfo = chats.find((c) => c._id === targetId);
+    const chatTitle = chatInfo?.chat_title || `Chat_${targetId}`;
+
+    const pdfPath = await generateChatPdf({
+      ownerId,
+      chatId: targetId,
+      chatTitle,
+      messages,
+      fromDate: isFallback ? undefined : oneWeekAgo,
+      toDate: new Date(),
+    });
+
+    const fileName = `${chatTitle.replace(/[^a-zA-Z0-9_\-]/g, '_') || 'chat'}_1haftalik.pdf`;
+    res.download(pdfPath, fileName, (err) => {
+      if (fs.existsSync(pdfPath)) {
+        fs.unlinkSync(pdfPath);
+      }
+    });
+  }
+
+  @Post(':chatId/send-message')
+  async sendMessage(
+    @Param('chatId') chatId: string,
+    @Body() body: { message?: string; text?: string; parse_mode?: string }
+  ) {
     const userChatId = Number(chatId);
+    if (isNaN(userChatId)) {
+      throw new BadRequestException('Invalid chatId');
+    }
+
+    const messageText = body?.message || body?.text;
+    if (!messageText || !messageText.trim()) {
+      throw new BadRequestException('Message content cannot be empty');
+    }
+
     const bot = this.botService.getBotInstance();
+    const parseMode = body?.parse_mode !== undefined ? body.parse_mode : 'HTML';
+
+    try {
+      if (parseMode) {
+        await bot.api.sendMessage(userChatId, messageText.trim(), { parse_mode: parseMode as any });
+      } else {
+        await bot.api.sendMessage(userChatId, messageText.trim());
+      }
+    } catch (err: any) {
+      try {
+        await bot.api.sendMessage(userChatId, messageText.trim());
+      } catch (fallbackErr: any) {
+        throw new BadRequestException(`Failed to send message: ${fallbackErr.message || err.message}`);
+      }
+    }
+
+    return { success: true, message: 'Custom message delivered successfully' };
+  }
+
+  @Post(':chatId/simulate-test')
+  async simulateTest(
+    @Param('chatId') chatId: string,
+    @Body() body?: { message?: string; text?: string }
+  ) {
+    const userChatId = Number(chatId);
+    if (isNaN(userChatId)) {
+      throw new BadRequestException('Invalid chatId');
+    }
+    const messageText = body?.message || body?.text || 
+      `🔔 <b>Test Xabarnomasi</b>\n\nTrackMyChatBot tizimidagi sozlamalaringiz to'g'ri ishlayotganini tekshirish uchun ushbu xabar yuborildi.\n\n@TrackMyChatBot`;
     
-    await bot.api.sendMessage(
-      userChatId,
-      `🔔 <b>Test Xabarnomasi</b>\n\nTrackMyChatBot tizimidagi sozlamalaringiz to'g'ri ishlayotganini tekshirish uchun ushbu xabar yuborildi.\n\n@TrackMyChatBot`,
-      { parse_mode: 'HTML' }
-    );
-    
+    const bot = this.botService.getBotInstance();
+    try {
+      await bot.api.sendMessage(userChatId, messageText.trim(), { parse_mode: 'HTML' });
+    } catch (err: any) {
+      try {
+        await bot.api.sendMessage(userChatId, messageText.trim());
+      } catch (fallbackErr: any) {
+        throw new BadRequestException(`Failed to send message: ${fallbackErr.message || err.message}`);
+      }
+    }
+
     return { success: true, message: 'Test message delivered successfully' };
   }
 }

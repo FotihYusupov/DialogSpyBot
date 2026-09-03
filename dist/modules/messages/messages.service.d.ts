@@ -24,6 +24,7 @@ export declare class MessagesService implements OnModuleInit {
     getPeakHours(days?: number): Promise<any[]>;
     getUserChats(ownerId: number): Promise<any[]>;
     getChatMessages(ownerId: number, chatId: number): Promise<BusinessMessage[]>;
+    getChatMessagesTimeframe(ownerId: number, chatId: number, fromDate?: Date): Promise<BusinessMessage[]>;
     getChatMessagesPaginated(ownerId: number, chatId: number, page: number, limit: number): Promise<BusinessMessage[]>;
     updateFilePathByFileId(fileId: string, filePath: string): Promise<void>;
     findByMongoId(mongoId: string): Promise<BusinessMessage | null>;

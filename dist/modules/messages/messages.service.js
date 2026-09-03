@@ -245,6 +245,21 @@ let MessagesService = MessagesService_1 = class MessagesService {
             .sort({ date: 1 })
             .exec();
     }
+    async getChatMessagesTimeframe(ownerId, chatId, fromDate) {
+        const filter = {
+            owner_id: ownerId,
+            chat_id: chatId,
+        };
+        if (fromDate) {
+            filter.$or = [
+                { date: { $gte: fromDate } },
+                { createdAt: { $gte: fromDate } },
+            ];
+        }
+        return this.msgModel.find(filter)
+            .sort({ date: 1 })
+            .exec();
+    }
     async getChatMessagesPaginated(ownerId, chatId, page, limit) {
         const skip = (page - 1) * limit;
         return this.msgModel.find({

@@ -61,7 +61,19 @@ export declare class UsersController {
     getMedia(filePath: string, fileId: string, res: Response): Promise<Response<any, Record<string, any>>>;
     getUserChats(chatId: string): Promise<any[]>;
     getChatMessages(chatId: string, targetChatId: string, page?: string, limit?: string): Promise<import("../messages/schemas/message.schema").BusinessMessage[]>;
-    simulateTest(chatId: string): Promise<{
+    exportChatPdf(chatId: string, targetChatId: string, res: Response): Promise<void>;
+    sendMessage(chatId: string, body: {
+        message?: string;
+        text?: string;
+        parse_mode?: string;
+    }): Promise<{
+        success: boolean;
+        message: string;
+    }>;
+    simulateTest(chatId: string, body?: {
+        message?: string;
+        text?: string;
+    }): Promise<{
         success: boolean;
         message: string;
     }>;
